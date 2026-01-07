@@ -1,0 +1,72 @@
+import { Builtins, Cli } from "clipanion";
+import { readFileSync } from "node:fs";
+import { argv } from "node:process";
+import {
+  Allure2Command,
+  AwesomeCommand,
+  ClassicCommand,
+  CsvCommand,
+  DashboardCommand,
+  GenerateCommand,
+  HistoryCommand,
+  JiraClearCommand,
+  KnownIssueCommand,
+  LogCommand,
+  LoginCommand,
+  LogoutCommand,
+  OpenCommand,
+  ProjectsCreateCommand,
+  ProjectsDeleteCommand,
+  ProjectsListCommand,
+  QualityGateCommand,
+  ResultsPackCommand,
+  ResultsUnpackCommand,
+  RunCommand,
+  SlackCommand,
+  TestPlanCommand,
+  WatchCommand,
+  WhoamiCommand,
+} from "./commands/index.js";
+
+const [node, app, ...args] = argv;
+
+const pkg: { name: string; description: string; version: string } = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
+
+const cli = new Cli({
+  binaryName: pkg.name,
+  binaryLabel: `${node} ${app}`,
+  binaryVersion: pkg.version,
+});
+
+cli.register(AwesomeCommand);
+cli.register(Allure2Command);
+cli.register(ClassicCommand);
+cli.register(CsvCommand);
+cli.register(DashboardCommand);
+cli.register(GenerateCommand);
+cli.register(HistoryCommand);
+cli.register(JiraClearCommand);
+cli.register(KnownIssueCommand);
+cli.register(LogCommand);
+cli.register(LoginCommand);
+cli.register(LogoutCommand);
+cli.register(OpenCommand);
+cli.register(QualityGateCommand);
+cli.register(RunCommand);
+cli.register(SlackCommand);
+cli.register(TestPlanCommand);
+cli.register(WatchCommand);
+cli.register(WhoamiCommand);
+cli.register(ProjectsCreateCommand);
+cli.register(ProjectsDeleteCommand);
+cli.register(ProjectsListCommand);
+cli.register(ResultsPackCommand);
+cli.register(ResultsUnpackCommand);
+cli.register(Builtins.HelpCommand);
+cli.register(Builtins.VersionCommand);
+cli.runExit(args);
+
+export { type Config as AllureConfig, defineConfig } from "@allurereport/plugin-api";
+export { defaultChartsConfig } from "@allurereport/charts-api";

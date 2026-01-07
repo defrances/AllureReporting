@@ -1,0 +1,17 @@
+{
+  "summary": {
+    "passed": "superato",
+    "failed": "fallito",
+    "broken": "rotto",
+    "skipped": "saltato",
+    "unknown": "sconosciuto",
+    "total": "totale",
+    "in": "in",
+    "new": "nuovi test",
+    "flaky": "test instabili",
+    "retry": "test ripetuti"
+  },
+  "empty": {
+    "no-reports": "Nessun report trovato"
+  }
+}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sample page</title>
+</head>
+<body>
+<div id="content">No content</div>
+<script>
+  window.fetch("/sample.json", {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  })
+    .then((res) => res.json())
+    .then((data) => {
+      window.document.getElementById("content").innerText = data.content;
+    })
+    .catch(() => {
+    });
+</script>
+</body>
+</html>

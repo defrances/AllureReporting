@@ -1,0 +1,51 @@
+# Dependencies
+node_modules
+.yarn/cache
+.yarn/install-state.gz
+.pnp.*
+# Keep .yarn/releases for Yarn
+!.yarn/releases
+
+# Build outputs
+dist
+out
+*.log
+
+# Note: We need package.json files from packages, so we can't exclude the packages directory
+# But we can exclude build outputs and other unnecessary files
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Test results
+allure-results
+*.xml
+# Exclude test result JSON files but keep package.json files
+**/test-results/*.json
+**/allure-results/*.json
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Documentation
+*.md
+!README.md
+
+# CI/CD
+.github
+.gitlab-ci.yml
+

@@ -1,0 +1,105 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`serve html > live > injects live reload script to html files 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sample page</title>
+</head>
+<body>
+<h1>Hello world!</h1>
+
+    <script>
+      const eventSource = new EventSource("/__live_reload");
+      
+      eventSource.onmessage = () => window.location.reload();
+    </script>
+  </body>
+</html>"
+`;
+
+exports[`serve html > returns index.html file by the full path 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sample page</title>
+</head>
+<body>
+<h1>Hello world!</h1>
+</body>
+</html>"
+`;
+
+exports[`serve html > returns index.html when an url ends just with word without file extension 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sample page</title>
+</head>
+<body>
+<h1>Hello world!</h1>
+</body>
+</html>"
+`;
+
+exports[`serve html > returns index.html when an url ends with / 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sample page</title>
+</head>
+<body>
+<h1>Hello world!</h1>
+</body>
+</html>"
+`;
+
+exports[`serve html > returns nested/index.html file by the full path 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sample nested page</title>
+</head>
+<body>
+<h1>Hello world!</h1>
+</body>
+</html>"
+`;
+
+exports[`serve html > returns nested/index.html when an url ends just with word without file extension 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sample nested page</title>
+</head>
+<body>
+<h1>Hello world!</h1>
+</body>
+</html>"
+`;
+
+exports[`serve html > returns nested/index.html when an url ends with / 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sample nested page</title>
+</head>
+<body>
+<h1>Hello world!</h1>
+</body>
+</html>"
+`;

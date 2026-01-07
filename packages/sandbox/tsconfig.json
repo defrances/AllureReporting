@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "module": "node16",
+    "target": "ES2017",
+    "lib": ["ES2017"],
+    "moduleResolution": "node16"
+  },
+}

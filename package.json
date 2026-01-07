@@ -1,0 +1,88 @@
+{
+  "name": "@allurereport/monorepo",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Allure framework TypeScript implementation",
+  "keywords": [],
+  "repository": "https://github.com/allure-framework/allure3",
+  "license": "Apache-2.0",
+  "author": "Qameta Software",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "archive": "yarn allure archive",
+    "build": "yarn workspaces foreach -Avvpt run build",
+    "clean": "yarn workspaces foreach -Avvpt run clean",
+    "eslint": "yarn workspaces foreach -Avvpt run eslint",
+    "eslint:format": "yarn workspaces foreach -Avvpt run eslint:format",
+    "format": "yarn eslint:format && yarn prettier:format",
+    "lint-staged": "lint-staged",
+    "prepare": "husky",
+    "prettier:format": "prettier --write './packages/*/{src,test,features}/**/*.{json,js,ts,tsx}' '!./packages/*/src/assets/data/test-results/**/*' package.json ./packages/*/package.json",
+    "report": "yarn allure generate --config=./allurerc.mjs",
+    "test": "yarn workspaces foreach -Avvp --topological-dev --exclude sandbox run test"
+  },
+  "lint-staged": {
+    "packages/*/{src,test,features}/**/*.{js,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "**/package.json": [
+      "prettier --write"
+    ]
+  },
+  "resolutions": {
+    "@preact/signals": "^2.5.1",
+    "@preact/compat": "^18.3.1",
+    "backbone.marionette@npm:3.5.1/backbone": "^1.6.0",
+    "backbone.marionette@npm:3.5.1/underscore": "^1.13.6",
+    "braces": "^3.0.3",
+    "esbuild": "^0.25.0",
+    "http-proxy-middleware": "^2.0.9",
+    "micromatch": "^4.0.8",
+    "nanoid": "^3.3.8",
+    "path-to-regexp": "^0.1.12",
+    "postcss": "^8.5.6",
+    "preact": "^10.25.0",
+    "react": "npm:@preact/compat@*",
+    "react-dom": "npm:@preact/compat@*",
+    "semver": "^7.5.2",
+    "tar": "^6.2.1",
+    "vite": "^5.4.17",
+    "webpack": "^5.103.0"
+  },
+  "devDependencies": {
+    "@stylistic/eslint-plugin": "^2.6.1",
+    "@trivago/prettier-plugin-sort-imports": "^4.3.0",
+    "@types/eslint": "^8.56.11",
+    "@types/node": "^20.17.9",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "allure": "workspace:*",
+    "babel-plugin-prismjs": "^2.1.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-jsdoc": "^50.0.0",
+    "eslint-plugin-n": "^17.10.1",
+    "eslint-plugin-no-null": "^1.0.2",
+    "eslint-plugin-prefer-arrow": "^1.2.3",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.10",
+    "prettier": "^3.3.3",
+    "prettier-plugin-packagejson": "^2.5.2",
+    "rimraf": "^6.0.1",
+    "tslib": "^2.7.0",
+    "typescript": "^5.6.3"
+  },
+  "dependenciesMeta": {
+    "@trivago/prettier-plugin-sort-imports@4.3.0": {
+      "unplugged": true
+    },
+    "prettier-plugin-packagejson@2.4.9": {
+      "unplugged": true
+    }
+  },
+  "packageManager": "yarn@4.5.1"
+}

@@ -1,0 +1,6 @@
+allure-results/
+allure-report/
+test-results/
+node_modules/
+history.jsonl
+.DS_Store

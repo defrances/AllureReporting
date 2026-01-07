@@ -1,0 +1,13 @@
+pre[class*="language-"],
+code[class*="language-"] {
+  background: var(--bg-base-secondary);
+  font-size: 12px;
+  font-family: "JetBrains Mono", monospace;
+  color: var(--on-text-primary);
+  text-shadow: none !important;
+  margin: 0;
+  width: 100%;
+  display: block;
+  padding: 8px;
+  white-space: pre-wrap;
+}

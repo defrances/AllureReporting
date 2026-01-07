@@ -1,0 +1,17 @@
+{
+  "summary": {
+    "passed": "başarılı",
+    "failed": "başarısız",
+    "broken": "bozuk",
+    "skipped": "atlandı",
+    "unknown": "bilinmeyen",
+    "total": "toplam",
+    "in": "içinde",
+    "new": "yeni testler",
+    "flaky": "kararsız testler",
+    "retry": "tekrar testleri"
+  },
+  "empty": {
+    "no-reports": "Rapor bulunamadı"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["./src", "./stories", "./.storybook", "vitest.config.ts", "**/*.test.tsx", "**/*.test.ts"],
+  "exclude": [],
+  "compilerOptions": {
+    "composite": true
+  }
+}

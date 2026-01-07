@@ -1,0 +1,17 @@
+{
+  "summary": {
+    "passed": "成功",
+    "failed": "失敗",
+    "broken": "壊れた",
+    "skipped": "スキップ",
+    "unknown": "不明",
+    "total": "合計",
+    "in": "中",
+    "new": "新規テスト",
+    "flaky": "不安定テスト",
+    "retry": "再試行テスト"
+  },
+  "empty": {
+    "no-reports": "レポートが見つかりません"
+  }
+}

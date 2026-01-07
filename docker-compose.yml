@@ -1,0 +1,53 @@
+services:
+  allure:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: allure-report
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount results directory to generate reports from
+      - ./allure-results:/app/allure-results:ro
+      # Mount output directory to persist generated reports
+      - ./out:/app/out
+      # Mount config file for customization
+      - ./allurerc.mjs:/app/allurerc.mjs:ro
+    environment:
+      - NODE_ENV=production
+    command: >
+      sh -c "
+        if [ -d /app/allure-results ] && [ -n \"$(ls -A /app/allure-results 2>/dev/null)\" ]; then
+          echo 'Generating report from allure-results...';
+          yarn allure generate allure-results --config=allurerc.mjs || true;
+        fi &&
+        if [ -d /app/out/allure-report/allure2 ]; then
+          echo 'Starting Allure server on port 8080 with Allure 2 report...';
+          yarn allure open --port 8080 out/allure-report/allure2;
+        elif [ -d /app/out/allure-report ]; then
+          echo 'Starting Allure server on port 8080 with existing report...';
+          yarn allure open --port 8080 out/allure-report;
+        elif [ -d /app/allure-results ]; then
+          echo 'Starting Allure server on port 8080 with results directory...';
+          yarn allure open --port 8080 allure-results;
+        else
+          echo 'No report or results found. Generating sample report...';
+          yarn report || true;
+          if [ -d /app/out/allure-report/allure2 ]; then
+            yarn allure open --port 8080 out/allure-report/allure2;
+          elif [ -d /app/out/allure-report ]; then
+            yarn allure open --port 8080 out/allure-report;
+          else
+            echo 'Please mount allure-results directory or generate a report first';
+            sleep infinity;
+          fi
+        fi
+      "
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
