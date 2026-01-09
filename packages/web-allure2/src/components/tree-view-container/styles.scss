@@ -26,7 +26,8 @@
     display: flex;
   }
   &__info,
-  &__download {
+  &__download,
+  &__download-pdf {
     cursor: pointer;
     padding: 7px;
     color: $text-color;

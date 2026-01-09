@@ -25,6 +25,7 @@
     },
     "tree": {
       "download": "Download CSV",
+      "downloadAllPdf": "Download all test results as PDF",
       "empty": "There are no items",
       "filter": "Status",
       "filter-marks": "Marks",

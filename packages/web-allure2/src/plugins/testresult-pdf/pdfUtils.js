@@ -124,7 +124,6 @@ export function normalizeText(input) {
   try {
     str = str.normalize("NFKC");
   } catch (e) {
-    // Ignore
   }
 
   str = str.replace(/\s+/g, " ").trim();
@@ -326,7 +325,6 @@ export async function addImageToPdf(pdf, imageUrl, attachment, x, yPos, pageWidt
           imgWidth *= scale;
           imgHeight *= scale;
 
-          // label
           pdf.setFontSize(8);
           pdf.setTextColor(110, 110, 110);
           const imageName = normalizeText(attachment?.name || attachment?.source || "Screenshot");
@@ -342,7 +340,6 @@ export async function addImageToPdf(pdf, imageUrl, attachment, x, yPos, pageWidt
             format = "PNG";
           }
           if (t.includes("webp")) {
-            // jsPDF webp support may vary; skip safely
             resolve(yPos);
             return;
           }
