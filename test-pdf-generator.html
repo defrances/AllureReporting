@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Generator Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+    <h1>PDF Generator Test</h1>
+    <button id="generatePdf">Generate PDF from test-data.json</button>
+    <div id="status"></div>
+
+    <script type="module">
+        const statusDiv = document.getElementById('status');
+        
+        async function generatePdf() {
+            try {
+                statusDiv.textContent = 'Loading test data...';
+                
+                // Load test data
+                const response = await fetch('test-data.json');
+                const testData = await response.json();
+                
+                statusDiv.textContent = 'Generating PDF...';
+                
+                // Load jsPDF
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                const pageWidth = pdf.internal.pageSize.getWidth();
+                const pageHeight = pdf.internal.pageSize.getHeight();
+                const margin = 20;
+                
+                // Simple PDF generation
+                pdf.setFontSize(20);
+                pdf.text('Test Report', pageWidth / 2, 30, { align: 'center' });
+                
+                pdf.setFontSize(12);
+                pdf.text(`Test Name: ${testData.name || 'N/A'}`, margin, 50);
+                pdf.text(`Status: ${testData.status || 'N/A'}`, margin, 60);
+                pdf.text(`Duration: ${testData.time?.duration ? (testData.time.duration / 1000).toFixed(2) + 's' : 'N/A'}`, margin, 70);
+                
+                if (testData.statusMessage) {
+                    pdf.setFontSize(10);
+                    const messageLines = pdf.splitTextToSize(testData.statusMessage, pageWidth - 2 * margin);
+                    let yPos = 85;
+                    messageLines.forEach(line => {
+                        pdf.text(line, margin, yPos);
+                        yPos += 6;
+                    });
+                }
+                
+                // Save PDF
+                const fileName = `test-${testData.uid || 'report'}.pdf`;
+                pdf.save(fileName);
+                
+                statusDiv.textContent = `PDF generated successfully: ${fileName}`;
+            } catch (error) {
+                statusDiv.textContent = `Error: ${error.message}`;
+                console.error('Error generating PDF:', error);
+            }
+        }
+        
+        document.getElementById('generatePdf').addEventListener('click', generatePdf);
+    </script>
+</body>
+</html>

@@ -1,1021 +1,1122 @@
+/* eslint-disable no-console */
+import { jsPDF } from "jspdf";
 import { View } from "backbone.marionette";
-import $ from "jquery";
-import { reportDataUrl } from "@allurereport/web-commons";
 import { className, on } from "@/decorators/index.js";
-import translate from "@/helpers/t.js";
-import attachmentType from "@/utils/attachmentType.js";
+import { reportDataUrl } from "@allurereport/web-commons";
 import template from "./PdfView.hbs";
 import "./styles.scss";
 
-async function loadPdfLibraries() {
-  const candidates = [
-    () => import("jspdf/dist/jspdf.es.min.js"),
-    () => import("jspdf/dist/jspdf.umd.min.js"),
-    () => import("jspdf"),
-  ];
+/**
+ * NOTE (Unicode / "Ø=Ü÷ ..." fix):
+ * jsPDF default fonts are not Unicode-safe. Use a real TTF font.
+ * 1) Download NotoSans-Regular.ttf (or Roboto-Regular.ttf)
+ * 2) Convert to base64: node -e "console.log(require('fs').readFileSync('NotoSans-Regular.ttf').toString('base64'))"
+ * 3) Paste base64 below
+ */
+const FONT_NOTO_SANS_BASE64 = ""; // TODO: put base64 of NotoSans-Regular.ttf here
+const FONT_NAME = "NotoSans";
+const HAS_UNICODE_FONT = FONT_NOTO_SANS_BASE64 && FONT_NOTO_SANS_BASE64.length > 0;
 
-  let lastError;
-
-  for (const load of candidates) {
-    try {
-      const mod = await load();
-      console.log("[PDF Generator] Module loaded:", {
-        hasJsPDF: !!mod.jsPDF,
-        hasDefault: !!mod.default,
-        defaultType: typeof mod.default,
-        keys: Object.keys(mod),
-      });
-      
-      const jsPDF = mod.jsPDF || mod.default?.jsPDF || mod.default || mod;
-      console.log("[PDF Generator] jsPDF extracted:", {
-        type: typeof jsPDF,
-        isConstructor: typeof jsPDF === "function",
-        hasPrototype: !!jsPDF.prototype,
-      });
-
-      console.log("[PDF Generator] jsPDF loaded successfully (annotations are built-in in v4.0+)");
-  return { jsPDF };
-    } catch (e) {
-      console.error("[PDF Generator] Error loading candidate:", e);
-      lastError = e;
-    }
-  }
-
-  throw lastError || new Error("Failed to load jsPDF with annotations support");
-}
-
-function safeTranslate(key, fallback) {
-  try {
-    return translate(key) || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function clampNumber(n, min, max) {
-  const v = Number.isFinite(n) ? n : min;
-  return Math.min(max, Math.max(min, v));
-}
-
-function sanitizeFileName(input) {
-  const raw = String(input ?? "report");
-  const cleaned = raw
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/\s+/g, " ")
-    .trim();
-  return cleaned.slice(0, 120) || "report";
-}
-
-function detectImageFormatFromDataUrl(dataUrl) {
-  if (typeof dataUrl !== "string") return null;
-  const m = dataUrl.match(/^data:([^;]+);base64,/i);
-  const mime = m?.[1]?.toLowerCase();
-  if (!mime) return null;
-
-  if (mime.includes("png")) return "PNG";
-  if (mime.includes("jpeg") || mime.includes("jpg")) return "JPEG";
-  if (mime.includes("webp")) return "WEBP";
-  // SVG is not reliably supported by jsPDF addImage without plugins; we rasterize it to PNG elsewhere.
-  return null;
-}
-
-@className("test-result-pdf")
+@className("pdf-view")
 class PdfView extends View {
   template = template;
 
-  colors = {
-    primary: [41, 128, 185], // Blue
-    success: [39, 174, 96], // Green
-    danger: [231, 76, 60], // Red
-    warning: [243, 156, 18], // Orange
-    info: [52, 152, 219], // Light Blue
-    dark: [44, 62, 80], // Dark Gray
-    light: [236, 240, 241], // Light Gray
-    border: [189, 195, 199], // Border Gray
-    text: [44, 62, 80], // Text Dark
-    textLight: [127, 140, 141], // Text Light
-  };
-
-  serializeData() {
-    const model = this.model?.toJSON?.() || {};
-    return {
-      cls: this.className,
-      testName: model.name || "Test",
-      status: model.status || "unknown",
-    };
-  }
-
-  getStatusColor(status) {
-    const statusColors = {
-      passed: this.colors.success,
-      failed: this.colors.danger,
-      broken: this.colors.warning,
-      skipped: this.colors.textLight,
-      unknown: this.colors.textLight,
-    };
-    return statusColors[status] || this.colors.textLight;
+  initialize() {
+    this.model = this.options.model;
   }
 
   @on("click .pdf-download-button")
-  async onDownloadPdf(e) {
-    e.preventDefault();
+  async onDownloadPdf() {
+    const button = this.$(".pdf-download-button");
+    const originalText = button.find("span").text();
 
-    const button = $(e.currentTarget);
-    const originalText = button.text();
-
-    button.prop("disabled", true).text(
-      safeTranslate("testResult.pdf.generating", "Generating PDF...")
-    );
-    
     try {
-      console.log("[PDF Generator] Starting PDF generation with annotations support v3.0");
-      const { jsPDF: jsPDFLib } = await loadPdfLibraries();
-      console.log("[PDF Generator] jsPDF loaded successfully");
+      button.prop("disabled", true);
+      button.find("span").text(this.translate("testResult.pdf.generating", "Generating PDF..."));
 
-      const testData = this.model?.toJSON?.() || {};
-      const allAttachments = Array.isArray(this.model?.allAttachments)
-        ? this.model.allAttachments
-        : [];
-
-      const pdf = new jsPDFLib("p", "mm", "a4");
+      const testData = this.model.toJSON();
+      const pdf = new jsPDF("p", "mm", "a4");
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
 
-      const layout = {
-        margin: 20,
-        headerHeight: 30,
-        footerHeight: 20,
-      };
+      // --- Fonts (Unicode-safe) ---
+      this.setupUnicodeFont(pdf);
 
-      this.addCoverPage(pdf, testData, pageWidth, pageHeight, layout.margin);
+      const margin = 16; // smaller margin => content more to the left
+      let yPos = margin;
 
-      const sections = this.buildSectionsList(testData, allAttachments);
-      const tocPages = this.createTocPages(pdf, pageHeight, layout, sections.length);
-
-      const ctx = {
-        pageWidth,
-        pageHeight,
-        ...layout,
-        y: layout.margin + layout.headerHeight,
-      };
-
-      const startContentPage = () => {
+      const ensureSpace = (needed) => {
+        const h = Math.max(0, Math.min(10000, Number(needed) || 0));
+        if (yPos + h > pageHeight - margin) {
           pdf.addPage();
-        this.setupHeaderFooter(pdf, ctx.pageWidth, ctx.pageHeight, ctx.margin, ctx.headerHeight, ctx.footerHeight);
-        ctx.y = ctx.margin + ctx.headerHeight;
-      };
-
-      const ensureSpace = (requiredHeight) => {
-        const need = clampNumber(requiredHeight, 0, 10_000);
-        if (ctx.y + need > ctx.pageHeight - ctx.footerHeight) {
-          startContentPage();
+          this.setupUnicodeFont(pdf);
+          yPos = margin;
           return true;
         }
         return false;
       };
       
-      const sectionPositions = {};
+      // Title
+      this.setupUnicodeFont(pdf);
+      pdf.setFontSize(18);
+      pdf.text("Test Report", pageWidth / 2, yPos, { align: "center" });
+      yPos += 12;
 
-      startContentPage();
-      ctx.y = this.addSectionHeader(pdf, "Test Overview", ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
-      sectionPositions["Test Overview"] = {
-        page: pdf.internal.getCurrentPageInfo().pageNumber,
-        top: ctx.y,
-      };
-      ctx.y = this.addTestOverview(pdf, testData, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
+      // Overview
+      pdf.setFontSize(12);
+      this.setupUnicodeFont(pdf);
+      pdf.text("Test Overview", margin, yPos);
+      yPos += 7;
 
-      startContentPage();
-      ctx.y = this.addSectionHeader(pdf, "Environment", ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
-      sectionPositions["Environment"] = {
-        page: pdf.internal.getCurrentPageInfo().pageNumber,
-        top: ctx.y,
-      };
-      ctx.y = await this.addEnvironmentSection(pdf, testData, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
+      pdf.setFontSize(10);
+      yPos = this.addKeyValue(pdf, "Name", testData.name || "N/A", margin, yPos, pageWidth, ensureSpace);
+      yPos = this.addKeyValue(pdf, "Status", String(testData.status || "unknown").toUpperCase(), margin, yPos, pageWidth, ensureSpace);
+      yPos = this.addKeyValue(pdf, "Full Name", testData.fullName || "N/A", margin, yPos, pageWidth, ensureSpace);
+      yPos = this.addKeyValue(pdf, "UID", testData.uid || "N/A", margin, yPos, pageWidth, ensureSpace);
 
-      if (Array.isArray(testData.labels) && testData.labels.length > 0) {
-        const sectionName = safeTranslate("testResult.tags.name", "Tags");
-        startContentPage();
-        ctx.y = this.addSectionHeader(pdf, sectionName, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
-        sectionPositions[sectionName] = {
-          page: pdf.internal.getCurrentPageInfo().pageNumber,
-          top: ctx.y,
-        };
-        ctx.y = this.addLabelsSection(pdf, testData.labels, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
+      const durationMs = testData.time?.duration;
+      // Format duration without normalizeText to preserve space in "49s 306ms"
+      const durationText = Number.isFinite(durationMs) ? this.formatDurationMs(durationMs) : "N/A";
+      const maxWidth = pageWidth - 2 * margin;
+      const text = `Duration: ${durationText}`;
+      const lines = pdf.splitTextToSize(text, maxWidth);
+      ensureSpace(lines.length * 5 + 2);
+      pdf.setFontSize(10);
+      pdf.text(lines, margin, yPos);
+      yPos += lines.length * 5 + 2;
+
+      // Attachments (zip files, especially RanorexFullReport.zip)
+      yPos = await this.addTestAttachments(pdf, testData, margin, yPos, pageWidth, ensureSpace);
+
+      // Status Details (test-level)
+      const msg = testData.statusDetails?.message || testData.statusMessage;
+      const trace = testData.statusDetails?.trace || testData.statusTrace;
+      if ((testData.status === "failed" || testData.status === "broken") && (msg || trace)) {
+        yPos += 4;
+        ensureSpace(30);
+        pdf.setFontSize(12);
+        pdf.text("Status Details", margin, yPos);
+        yPos += 7;
+        pdf.setFontSize(9);
+
+        if (msg) {
+          yPos = this.addWrappedBlock(pdf, "Message", String(msg), margin, yPos, pageWidth, ensureSpace);
+        }
+        if (trace) {
+          yPos = this.addWrappedBlock(pdf, "Trace", String(trace), margin, yPos, pageWidth, ensureSpace);
+        }
       }
 
-      if (Array.isArray(testData.parameters) && testData.parameters.length > 0) {
-        const sectionName = safeTranslate("testResult.parameters.name", "Parameters");
-        startContentPage();
-        ctx.y = this.addSectionHeader(pdf, sectionName, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
-        sectionPositions[sectionName] = {
-          page: pdf.internal.getCurrentPageInfo().pageNumber,
-          top: ctx.y,
-        };
-        ctx.y = this.addParametersSection(pdf, testData.parameters, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
+      // Execution
+      yPos += 6;
+      ensureSpace(20);
+      pdf.setFontSize(12);
+      pdf.text("Execution", margin, yPos);
+      yPos += 8;
+
+      // Column headers for steps (Time | Duration | Name | Status)
+      yPos = this.addStepsHeader(pdf, margin, yPos, pageWidth, ensureSpace);
+
+      const hasBeforeStages = Array.isArray(testData.beforeStages) && testData.beforeStages.length > 0;
+      const hasTestStage = Array.isArray(testData.testStage?.steps) && testData.testStage.steps.length > 0;
+      const hasAfterStages = Array.isArray(testData.afterStages) && testData.afterStages.length > 0;
+
+      if (hasBeforeStages || hasTestStage || hasAfterStages) {
+        const testStart = testData.time?.start || Date.now();
+
+        if (hasBeforeStages) {
+          yPos = this.addStageTitle(pdf, "Set up", margin, yPos, ensureSpace);
+          for (const st of testData.beforeStages) {
+            if (Array.isArray(st?.steps)) {
+              yPos = await this.addStepsToPdf(pdf, st.steps, margin, yPos, pageWidth, pageHeight, ensureSpace, testStart, 0);
+            }
+          }
+        }
+
+        if (hasTestStage) {
+          yPos = this.addStageTitle(pdf, "Test body", margin, yPos, ensureSpace);
+          yPos = await this.addStepsToPdf(pdf, testData.testStage.steps, margin, yPos, pageWidth, pageHeight, ensureSpace, testStart, 0);
+        }
+
+        if (hasAfterStages) {
+          yPos = this.addStageTitle(pdf, "Tear down", margin, yPos, ensureSpace);
+          for (const st of testData.afterStages) {
+            if (Array.isArray(st?.steps)) {
+              yPos = await this.addStepsToPdf(pdf, st.steps, margin, yPos, pageWidth, pageHeight, ensureSpace, testStart, 0);
+            }
+          }
+        }
       }
 
-      if (Array.isArray(testData.links) && testData.links.length > 0) {
-        const sectionName = safeTranslate("testResult.links.name", "Links");
-        startContentPage();
-        ctx.y = this.addSectionHeader(pdf, sectionName, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
-        sectionPositions[sectionName] = {
-          page: pdf.internal.getCurrentPageInfo().pageNumber,
-          top: ctx.y,
-        };
-        ctx.y = this.addLinksSection(pdf, testData.links, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
-      }
-
-      if (testData.description) {
-        const sectionName = safeTranslate("testResult.description.name", "Description");
-        startContentPage();
-        ctx.y = this.addSectionHeader(pdf, sectionName, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
-        sectionPositions[sectionName] = {
-          page: pdf.internal.getCurrentPageInfo().pageNumber,
-          top: ctx.y,
-        };
-        ctx.y = this.addDescriptionSection(pdf, String(testData.description), ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
-      }
-
-      if (testData.testStage?.steps && Array.isArray(testData.testStage.steps)) {
-        const sectionName = safeTranslate("testResult.execution.name", "Execution");
-        startContentPage();
-        ctx.y = this.addSectionHeader(pdf, sectionName, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
-        sectionPositions[sectionName] = {
-          page: pdf.internal.getCurrentPageInfo().pageNumber,
-          top: ctx.y,
-        };
-        ctx.y = this.addStepsToPdf(
-          pdf,
-          testData.testStage.steps,
-          ctx.margin,
-          ctx.y,
-          ctx.pageWidth,
-          ctx.pageHeight,
-          ensureSpace
-        );
-      }
-
-      if ((testData.status === "failed" || testData.status === "broken") && testData.statusDetails) {
-        const sectionName = "Status Details";
-        startContentPage();
-        ctx.y = this.addSectionHeader(pdf, sectionName, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
-        sectionPositions[sectionName] = {
-          page: pdf.internal.getCurrentPageInfo().pageNumber,
-          top: ctx.y,
-        };
-        ctx.y = this.addStatusDetailsSection(
-          pdf,
-          testData.statusDetails,
-          ctx.pageWidth,
-          ctx.y,
-          ctx.margin,
-          ensureSpace
-        );
-      }
-
-      if (allAttachments.length > 0) {
-        const sectionName = "Attachments";
-        startContentPage();
-        ctx.y = this.addSectionHeader(pdf, sectionName, ctx.pageWidth, ctx.y, ctx.margin, ensureSpace);
-        sectionPositions[sectionName] = {
-          page: pdf.internal.getCurrentPageInfo().pageNumber,
-          top: ctx.y,
-        };
-        ctx.y = await this.addAttachmentsSection(
-          pdf,
-          allAttachments,
-          ctx.pageWidth,
-          ctx.pageHeight,
-          ctx.y,
-          ctx.margin,
-          ensureSpace
-        );
-      }
-
-      this.fillTocPages(pdf, tocPages, sections, testData, allAttachments, pageWidth, pageHeight, layout, sectionPositions);
-      const safeId = sanitizeFileName(testData.uid || testData.name || "report");
-      const fileName = `test-${safeId}.pdf`;
+      // Save
+      const fileName = `${String(testData.name || "test").replace(/[^a-z0-9]/gi, "_").slice(0, 50)}.pdf`;
       pdf.save(fileName);
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error("[PDF Generator] Error generating PDF:", error);
-      console.error("[PDF Generator] Error stack:", error?.stack);
-      console.error("[PDF Generator] Error message:", error?.message);
-      console.error("[PDF Generator] Error details:", {
-        name: error?.name,
-        message: error?.message,
-        stack: error?.stack,
-        toString: String(error),
-      });
-      alert(safeTranslate("testResult.pdf.error", "Error generating PDF. Please try again."));
+      console.error("Error generating PDF:", error);
+      const button = this.$(".pdf-download-button");
+      button.prop("disabled", false);
+      button.find("span").text(this.translate("testResult.pdf.error", "Error generating PDF"));
     } finally {
-      button.prop("disabled", false).text(originalText);
+      const button = this.$(".pdf-download-button");
+      button.prop("disabled", false);
+      button.find("span").text(originalText);
     }
   }
 
-  buildSectionsList(testData, allAttachments) {
-    return [
-      "Test Overview",
-      "Environment",
-      Array.isArray(testData.labels) && testData.labels.length > 0
-        ? safeTranslate("testResult.tags.name", "Tags")
-        : null,
-      Array.isArray(testData.parameters) && testData.parameters.length > 0
-        ? safeTranslate("testResult.parameters.name", "Parameters")
-        : null,
-      Array.isArray(testData.links) && testData.links.length > 0
-        ? safeTranslate("testResult.links.name", "Links")
-        : null,
-      testData.description ? safeTranslate("testResult.description.name", "Description") : null,
-      Array.isArray(testData.testStage?.steps) && testData.testStage.steps.length > 0
-        ? safeTranslate("testResult.execution.name", "Execution")
-        : null,
-      (testData.status === "failed" || testData.status === "broken") && testData.statusDetails
-        ? "Status Details"
-        : null,
-      Array.isArray(allAttachments) && allAttachments.length > 0 ? "Attachments" : null,
-    ].filter(Boolean);
-  }
+  // ----------------- Core changes -----------------
 
-  createTocPages(pdf, pageHeight, layout, sectionCount) {
-    const { margin, headerHeight, footerHeight } = layout;
+  getAllureBaseUrl() {
+    try {
+      const href = String(window.location.href || "");
+      console.log("[PDF] Current location:", href);
 
-    const titleBlock = 30;
-    const perItem = 18;
-    const usable = pageHeight - footerHeight - (margin + headerHeight);
-
-    const neededHeight = titleBlock + sectionCount * perItem + 10;
-    const pagesNeeded = Math.max(1, Math.ceil(neededHeight / usable));
-
-    const tocPages = [];
-    for (let i = 0; i < pagesNeeded; i++) {
-      pdf.addPage();
-      tocPages.push(pdf.internal.getCurrentPageInfo().pageNumber);
-    }
-    return tocPages;
-  }
-
-  fillTocPages(pdf, tocPages, sections, testData, allAttachments, pageWidth, pageHeight, layout, sectionPositions) {
-    const { margin, headerHeight, footerHeight } = layout;
-
-    let pageIndex = 0;
-    let yPos = margin + headerHeight;
-
-    const setTocPage = (idx) => {
-      const pageNum = tocPages[idx];
-      pdf.setPage(pageNum);
-      this.setupHeaderFooter(pdf, pageWidth, pageHeight, margin, headerHeight, footerHeight);
-      yPos = margin + headerHeight;
-    };
-
-    const ensureTocSpace = (h) => {
-      const required = clampNumber(h, 0, 10_000);
-      if (yPos + required > pageHeight - footerHeight) {
-        pageIndex += 1;
-        if (pageIndex >= tocPages.length) {
-          return false;
-        }
-        setTocPage(pageIndex);
+      // ищем .../allure-runs/Run_5/ (или любой другой run)
+      const m = href.match(/^(.*\/allure-runs\/[^/]+\/)/i);
+      if (m && m[1]) {
+        const baseUrl = m[1];
+        console.log("[PDF] Found allure-runs base URL:", baseUrl);
+        return baseUrl;
       }
-      return true;
+
+      // альтернатива: ищем паттерн .../projects/PROJECT/reports/allure-runs/Run_X/
+      const m2 = href.match(/^(.*\/projects\/[^/]+\/reports\/allure-runs\/[^/]+\/)/i);
+      if (m2 && m2[1]) {
+        const baseUrl = m2[1];
+        console.log("[PDF] Found projects/reports base URL:", baseUrl);
+        return baseUrl;
+      }
+
+      // fallback: используем текущий путь до последнего слэша
+      const pathMatch = href.match(/^(.*\/)/);
+      if (pathMatch && pathMatch[1]) {
+        const baseUrl = pathMatch[1];
+        console.log("[PDF] Using path-based base URL:", baseUrl);
+        return baseUrl;
+      }
+
+      // последний fallback: просто origin + "/"
+      const fallback = `${window.location.origin}/`;
+      console.log("[PDF] Using origin fallback:", fallback);
+      return fallback;
+    } catch (e) {
+      console.warn("[PDF] Failed to get Allure base URL:", e);
+      return `${window.location.origin}/`;
+    }
+  }
+
+  setupUnicodeFont(pdf) {
+    try {
+      if (HAS_UNICODE_FONT) {
+        // Add only once per instance (jsPDF stores in VFS)
+        const fontList = pdf.getFontList();
+        if (!fontList || !fontList[FONT_NAME]) {
+          pdf.addFileToVFS(`${FONT_NAME}.ttf`, FONT_NOTO_SANS_BASE64);
+          pdf.addFont(`${FONT_NAME}.ttf`, FONT_NAME, "normal");
+        }
+        pdf.setFont(FONT_NAME, "normal");
+      } else {
+        // Fallback
+        pdf.setFont("helvetica", "normal");
+      }
+    } catch (e) {
+      console.warn("Unicode font init failed, using helvetica:", e);
+      pdf.setFont("helvetica", "normal");
+    }
+  }
+
+  addKeyValue(pdf, key, value, margin, yPos, pageWidth, ensureSpace) {
+    const maxWidth = pageWidth - 2 * margin;
+    const text = `${key}: ${this.normalizeText(value)}`;
+    const lines = pdf.splitTextToSize(text, maxWidth);
+    ensureSpace(lines.length * 5 + 2);
+    pdf.setFontSize(10);
+    pdf.text(lines, margin, yPos);
+    return yPos + lines.length * 5 + 2;
+  }
+
+  addWrappedBlock(pdf, label, body, margin, yPos, pageWidth, ensureSpace) {
+    const maxWidth = pageWidth - 2 * margin;
+    const head = `${label}:`;
+    ensureSpace(6);
+    pdf.setFontSize(9);
+    pdf.text(head, margin, yPos);
+    yPos += 5;
+
+    // Don't use normalizeText for Status Details messages to preserve spaces
+    // Decode JSON escape sequences and remove only NULL bytes and BOM
+    let clean = String(body || "");
+    // Decode escaped quotes and other JSON escape sequences
+    clean = clean
+      .replace(/\\"/g, '"')  // \" -> "
+      .replace(/\\n/g, "\n") // \n -> newline
+      .replace(/\\t/g, "\t") // \t -> tab
+      .replace(/\\\\/g, "\\"); // \\ -> \
+    // Remove only NULL bytes and BOM, but preserve spaces
+    clean = clean.replace(/\0/g, "").replace(/\uFEFF/g, "");
+    const lines = pdf.splitTextToSize(clean, maxWidth);
+    ensureSpace(lines.length * 4 + 3);
+    pdf.setFontSize(8);
+    pdf.text(lines, margin, yPos);
+    return yPos + lines.length * 4 + 3;
+  }
+
+  async addTestAttachments(pdf, testData, margin, yPos, pageWidth, ensureSpace) {
+    // Collect all attachments from test level and all stages/steps
+    const attachments = [];
+
+    // Test level attachments
+    if (Array.isArray(testData.attachments) && testData.attachments.length > 0) {
+      attachments.push(...testData.attachments);
+    }
+
+    // Helper to recursively collect attachments from steps
+    const collectFromSteps = (steps) => {
+      if (!Array.isArray(steps)) {
+        return;
+      }
+      for (const step of steps) {
+        if (step?.attachments && Array.isArray(step.attachments)) {
+          attachments.push(...step.attachments);
+        }
+        if (step?.steps && Array.isArray(step.steps)) {
+          collectFromSteps(step.steps);
+        }
+      }
     };
 
-    setTocPage(0);
+    // Collect from beforeStages
+    if (Array.isArray(testData.beforeStages)) {
+      for (const stage of testData.beforeStages) {
+        if (stage?.attachments && Array.isArray(stage.attachments)) {
+          attachments.push(...stage.attachments);
+        }
+        if (stage?.steps) {
+          collectFromSteps(stage.steps);
+        }
+      }
+    }
 
-      pdf.setFontSize(18);
-      pdf.setFont("helvetica", "bold");
-    pdf.setTextColor(...this.colors.primary);
-    pdf.text("Table of Contents", pageWidth / 2, yPos, { align: "center" });
-    yPos += 20;
+    // Collect from testStage
+    if (testData.testStage) {
+      if (testData.testStage.attachments && Array.isArray(testData.testStage.attachments)) {
+        attachments.push(...testData.testStage.attachments);
+      }
+      if (testData.testStage.steps) {
+        collectFromSteps(testData.testStage.steps);
+      }
+    }
 
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(11);
+    // Collect from afterStages
+    if (Array.isArray(testData.afterStages)) {
+      for (const stage of testData.afterStages) {
+        if (stage?.attachments && Array.isArray(stage.attachments)) {
+          attachments.push(...stage.attachments);
+        }
+        if (stage?.steps) {
+          collectFromSteps(stage.steps);
+        }
+      }
+    }
 
-    const itemHeight = 10;
-    const itemGap = 3;
+    // Find zip files, especially RanorexFullReport.zip
+    const zipAttachments = attachments.filter((att) => {
+      if (!att || !att.source) {
+        return false;
+      }
+      const name = String(att.name || att.source || "").toLowerCase();
+      const type = String(att.type || "").toLowerCase();
+      return type.includes("zip") || name.endsWith(".zip");
+    });
 
-    const canLink =
-      typeof pdf.textWithLink === "function" ||
-      typeof pdf.link === "function";
-    
-    console.log(`[PDF TOC] Link support check: textWithLink=${typeof pdf.textWithLink === "function"}, link=${typeof pdf.link === "function"}, canLink=${canLink}`);
+    if (zipAttachments.length === 0) {
+      return yPos;
+    }
 
-    sections.forEach((section, idx) => {
-      if (!ensureTocSpace(itemHeight + itemGap + 2)) {
+    // Sort: RanorexFullReport.zip first
+    zipAttachments.sort((a, b) => {
+      const aName = String(a.name || a.source || "").toLowerCase();
+      const bName = String(b.name || b.source || "").toLowerCase();
+      const aIsRanorex = aName.includes("ranorexfullreport");
+      const bIsRanorex = bName.includes("ranorexfullreport");
+      if (aIsRanorex && !bIsRanorex) {
+        return -1;
+      }
+      if (!aIsRanorex && bIsRanorex) {
+        return 1;
+      }
+      return aName.localeCompare(bName);
+    });
+
+    yPos += 4;
+    ensureSpace(10);
+    pdf.setFontSize(10);
+    pdf.setTextColor(0, 0, 0);
+    pdf.text("Attachments", margin, yPos);
+      yPos += 7;
+
+    pdf.setFontSize(9);
+    const baseUrl = this.getAllureBaseUrl();
+    console.log("[PDF] Total zip attachments found:", zipAttachments.length);
+
+    for (const att of zipAttachments) {
+      const attName = String(att.name || att.source || "attachment.zip");
+      // Build absolute HTTP(S) URL for PDF link (not blob/data URL)
+      const attUrl = `${baseUrl}data/attachments/${att.source}`;
+      console.log("[PDF] Adding attachment link:", attName, "->", attUrl);
+
+      ensureSpace(6);
+      pdf.setTextColor(0, 0, 128); // Blue color for links
+
+      // Use textWithLink if available, otherwise use text + link
+      const x = margin + 5;
+      if (typeof pdf.textWithLink === "function") {
+        console.log("[PDF] Using textWithLink for:", attName);
+        pdf.textWithLink(attName, x, yPos, { url: attUrl });
+      } else {
+        console.log("[PDF] Using text + link for:", attName);
+        pdf.text(attName, x, yPos);
+        const textWidth = pdf.getTextWidth(attName);
+        // Improved hitbox: slightly higher and taller for better clickability
+        pdf.link(x, yPos - 5, textWidth, 7, { url: attUrl });
+      }
+
+      pdf.setTextColor(0, 0, 0);
+      yPos += 6;
+    }
+
+    return yPos;
+  }
+
+  addStepsHeader(pdf, margin, yPos, pageWidth, ensureSpace) {
+    ensureSpace(10);
+    pdf.setFontSize(9);
+    pdf.setTextColor(90, 90, 90);
+
+    const cols = this.getStepColumns(pageWidth, margin);
+    pdf.text("Duration", cols.durX, yPos);
+    pdf.text("Step", cols.nameX, yPos);
+    pdf.text("Status", cols.statusX, yPos, { align: "right" });
+
+    pdf.setTextColor(0, 0, 0);
+    return yPos + 6;
+  }
+
+  addStageTitle(pdf, title, margin, yPos, ensureSpace) {
+    ensureSpace(10);
+      pdf.setFontSize(10);
+    pdf.setTextColor(40, 40, 40);
+    pdf.text(title, margin, yPos);
+    pdf.setTextColor(0, 0, 0);
+    return yPos + 6;
+  }
+
+  getStepColumns(pageWidth, margin) {
+    const contentW = pageWidth - 2 * margin;
+
+    // More left + stable columns
+    const durW = 20;      // "12.3s"
+    const statusW = 20;   // "PASSED"
+    const gap = 2;
+
+    const durX = margin;
+    const nameX = durX + durW + gap;
+    const statusX = margin + contentW;
+
+    const nameW = Math.max(60, statusX - nameX - statusW - gap);
+
+    return { durX, nameX, nameW, statusX, statusW };
+  }
+
+  async addStepsToPdf(
+    pdf,
+    steps,
+    margin,
+    startY,
+    pageWidth,
+    pageHeight,
+    ensureSpace,
+    testStart,
+    indent,
+  ) {
+    let yPos = startY;
+
+    const addStep = async (step, level) => {
+      if (!step) {
         return;
       }
 
-      const numberText = `${idx + 1}.`;
-      const fullText = `${numberText} ${section}`;
-
-      const textX = margin + 15;
-      const pos = sectionPositions[section];
-
-      pdf.setTextColor(...this.colors.primary);
-
-      if (pos && canLink) {
-        try {
-          if (typeof pdf.textWithLink === "function") {
-            pdf.textWithLink(fullText, textX, yPos, {
-              pageNumber: pos.page,
-              top: Math.max(0, pos.top - 8),
-            });
-            console.log(`[PDF TOC] ✓ Link created for "${section}"`);
-          } else if (typeof pdf.link === "function") {
-            const textWidth = pdf.getTextWidth(fullText);
-            pdf.text(fullText, textX, yPos, { align: "left" });
-            pdf.link(textX, yPos - 5, textWidth, itemHeight, {
-              pageNumber: pos.page,
-              top: Math.max(0, pos.top - 8),
-            });
-            console.log(`[PDF TOC] ✓ Link created for "${section}"`);
-          } else {
-            console.log(`[PDF TOC] ✗ No link support for "${section}"`);
-            pdf.text(fullText, textX, yPos, { align: "left" });
-          }
-        } catch (error) {
-          console.error(`[PDF TOC] ✗ Error creating link for "${section}":`, error);
-          pdf.text(fullText, textX, yPos, { align: "left" });
-        }
-      } else {
-        pdf.text(fullText, textX, yPos, { align: "left" });
+      // 1) EXCLUDE "Step table" COMPLETELY
+      const stepNameRaw = String(step?.name || "Step");
+      if (stepNameRaw.trim().toLowerCase() === "step table") {
+        return;
       }
 
-      pdf.setTextColor(...this.colors.text);
-      yPos += itemHeight + itemGap;
-    });
-  }
-
-  setupHeaderFooter(pdf, pageWidth, pageHeight, margin, headerHeight, footerHeight) {
-    const pageNum = pdf.internal.getCurrentPageInfo().pageNumber;
-
-    pdf.setDrawColor(...this.colors.border);
-    pdf.setLineWidth(0.5);
-    pdf.line(margin, headerHeight, pageWidth - margin, headerHeight);
-
-    pdf.setFontSize(10);
-    pdf.setTextColor(...this.colors.textLight);
-    pdf.setFont("helvetica", "normal");
-    pdf.text("Allure Test Report", margin, headerHeight - 5);
-
-    pdf.setDrawColor(...this.colors.border);
-    pdf.setLineWidth(0.5);
-    pdf.line(margin, pageHeight - footerHeight, pageWidth - margin, pageHeight - footerHeight);
-
-    pdf.setFontSize(9);
-    pdf.setTextColor(...this.colors.textLight);
-    pdf.text(`Page ${pageNum}`, pageWidth / 2, pageHeight - footerHeight + 5, { align: "center" });
-
-    const d = new Date();
-    const isoDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    pdf.text(isoDate, pageWidth - margin, pageHeight - footerHeight + 5, { align: "right" });
-  }
-
-  addCoverPage(pdf, testData, pageWidth, pageHeight, margin) {
-    let yPos = pageHeight / 3;
-
-    pdf.setFontSize(24);
-      pdf.setFont("helvetica", "bold");
-    pdf.setTextColor(...this.colors.primary);
-    pdf.text("Allure Test Report", pageWidth / 2, yPos, { align: "center" });
-    yPos += 15;
-
-    pdf.setFontSize(16);
-    pdf.setTextColor(...this.colors.text);
-    const testName = String(testData.name || "Test");
-      const testNameLines = pdf.splitTextToSize(testName, pageWidth - 2 * margin);
-      testNameLines.forEach((line) => {
-      pdf.text(line, pageWidth / 2, yPos, { align: "center" });
-      yPos += 8;
-    });
-
-    yPos += 20;
-
-    const status = String(testData.status || "unknown").toUpperCase();
-    const statusColor = this.getStatusColor(testData.status);
-    pdf.setFillColor(...statusColor);
-    pdf.setDrawColor(...statusColor);
-    pdf.rect(pageWidth / 2 - 20, yPos - 5, 40, 10, "FD");
-
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(12);
-    pdf.setFont("helvetica", "bold");
-    pdf.text(status, pageWidth / 2, yPos, { align: "center" });
-
-    yPos += 30;
-
-    pdf.setTextColor(...this.colors.text);
-      pdf.setFontSize(10);
-      pdf.setFont("helvetica", "normal");
-      
-    const infoItems = [
-      { label: "Duration", value: this.formatDuration(testData.duration || 0) },
-      { label: "Severity", value: testData.severity || "normal" },
-      { label: "Full Name", value: testData.fullName || "N/A" },
-    ];
-
-    infoItems.forEach((item) => {
-        pdf.setFont("helvetica", "bold");
-      pdf.text(`${item.label}:`, pageWidth / 2 - 30, yPos, { align: "right" });
-        pdf.setFont("helvetica", "normal");
-      pdf.text(String(item.value ?? "N/A"), pageWidth / 2 + 5, yPos);
-      yPos += 7;
-    });
-  }
-
-  addSectionHeader(pdf, title, pageWidth, yPos, margin, ensureSpace) {
-    ensureSpace(15);
-
-    pdf.setFillColor(...this.colors.primary);
-    pdf.rect(margin, yPos - 8, pageWidth - 2 * margin, 10, "F");
-
-    pdf.setFontSize(12);
-    pdf.setFont("helvetica", "bold");
-    pdf.setTextColor(255, 255, 255);
-    pdf.text(String(title), margin + 5, yPos);
-
-    return yPos + 12;
-  }
-
-  addTestOverview(pdf, testData, pageWidth, yPos, margin, ensureSpace) {
-    const tableData = [
-      { label: "Duration", value: this.formatDuration(testData.duration || 0) },
-      { label: "Severity", value: testData.severity || "normal" },
-      { label: "Full Name", value: testData.fullName || "N/A" },
-      { label: "Test ID", value: testData.uid || "N/A" },
-      { label: "History ID", value: testData.historyId || "N/A" },
-    ];
-    return this.addTable(pdf, tableData, pageWidth, yPos, margin, ensureSpace);
-  }
-
-  async addEnvironmentSection(pdf, testData, pageWidth, yPos, margin, ensureSpace) {
-    const envMap = new Map();
-
-    const fetchEnvData = async (url) => {
-      try {
-        const envUrl = await reportDataUrl(url, "application/json");
-        const response = await fetch(envUrl).catch(() => null);
-        if (!response || !response.ok) return;
-
-        const envItems = await response.json().catch(() => null);
-        if (!Array.isArray(envItems)) return;
-
-        envItems.forEach((item) => {
-          if (!item?.name) return;
-          const values = item.values;
-          if (!values || (Array.isArray(values) && values.length === 0)) return;
-
-          const value = Array.isArray(values) ? values.join(", ") : String(values);
-          envMap.set(String(item.name).toLowerCase(), { name: item.name, value });
-        });
-      } catch {
+      // If we have nested "attachmentStep" rows that are purely "Step table" - skip as well
+      if (step?.attachmentStep && stepNameRaw.trim().toLowerCase() === "step table") {
+        return;
       }
-    };
 
-    await Promise.allSettled([
-      fetchEnvData("widgets/allure_environment.json"),
-      fetchEnvData("widgets/environment.json"),
-    ]);
+      // Check if step name matches NGPVHOST_*_trace pattern (completely skip rendering the step name, but keep images)
+      const isTraceStep = /^NGPVHOST_.*_trace$/i.test(stepNameRaw.trim());
 
-    if (testData?.time?.start) {
-      const startTime = new Date(testData.time.start);
-      const formattedTime = startTime.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "Z");
-      envMap.set("execution.time", { name: "execution.time", value: formattedTime });
-    }
+      // Check if step name contains "RanorexFullReport.zip" (hide status and duration)
+      const isRanorexReportStep = /ranorexfullreport\.zip/i.test(stepNameRaw.trim());
 
-    if (testData.duration !== undefined && testData.duration !== null) {
-      envMap.set("duration", { name: "duration", value: this.formatDuration(testData.duration) });
-    }
+      // Check if step itself is named "Step Details" (hide status and duration)
+      const isStepDetailsStep = stepNameRaw.trim().toLowerCase() === "step details";
 
-    if (Array.isArray(testData.labels)) {
-      const labelMapping = {
-        environment: "environment",
-        host: "computer.name",
-        os: "operating.system",
-        "os.name": "operating.system",
-        language: "language",
-        username: "username",
-        user: "username",
-        screen: "screen.dimension",
-        "screen.dimension": "screen.dimension",
-        "run.configuration": "run.configuration.name",
-        "run.configuration.name": "run.configuration.name",
-        mechsimdir: "mechSimDir",
-        hostappdir: "hostAppDir",
-      };
+      // Check if step has nested "Step Details" step (hide status and duration only for these)
+      // Note: We check only for nested "Step Details" step, not for statusMessage/statusTrace
+      // because those can exist on any step and don't indicate we should hide status/duration
+      const hasNestedStepDetails =
+        Array.isArray(step?.steps) && step.steps.some((s) => String(s?.name || "").trim().toLowerCase() === "step details");
 
-      testData.labels.forEach((label) => {
-        const labelName = String(label?.name || "").toLowerCase();
-        const labelValue = label?.value ?? "N/A";
-        const envFieldName = labelMapping[labelName] || label?.name;
+      // Determine if we should hide status and duration
+      const hideStatusAndDuration = isTraceStep || isRanorexReportStep || isStepDetailsStep || hasNestedStepDetails;
 
-        if (!envFieldName) return;
+      // For trace steps, skip rendering the step name/status/duration completely, but keep images
+      if (isTraceStep) {
+        // Skip rendering step name, status, duration, dot, and Step Details
+        // But continue to render images and sub-steps
+        // Render images directly
+        if (Array.isArray(step?.attachments) && step.attachments.length > 0) {
+          for (const att of step.attachments) {
+            if (!att) {
+              continue;
+            }
+            const attName = String(att?.name || "").trim().toLowerCase();
+            if (attName === "step table") {
+              continue;
+            }
 
-        const key = String(envFieldName).toLowerCase();
-        if (!envMap.has(key)) {
-          envMap.set(key, { name: envFieldName, value: String(labelValue) });
-        }
-      });
-    }
-
-    if (testData.hostId && !envMap.has("computer.name")) {
-      envMap.set("computer.name", { name: "computer.name", value: String(testData.hostId) });
-    }
-    if (testData.hostId && !envMap.has("host.id")) {
-      envMap.set("host.id", { name: "Host ID", value: String(testData.hostId) });
-    }
-    if (testData.threadId && !envMap.has("thread.id")) {
-      envMap.set("thread.id", { name: "Thread ID", value: String(testData.threadId) });
-    }
-
-    const envData = Array.from(envMap.values()).sort((a, b) => {
-      if (a.name === "execution.time") return -1;
-      if (b.name === "execution.time") return 1;
-      return String(a.name).localeCompare(String(b.name));
-    });
-
-    if (envData.length === 0) {
-      pdf.setFontSize(10);
-      pdf.setTextColor(...this.colors.textLight);
-      pdf.setFont("helvetica", "normal");
-      pdf.text("No environment information available", margin + 5, yPos);
-      return yPos + 8;
-    }
-
-    return this.addTable(pdf, envData, pageWidth, yPos, margin, ensureSpace);
-  }
-
-  addLabelsSection(pdf, labels, pageWidth, yPos, margin, ensureSpace) {
-    const labelData = labels.map((label) => ({
-      label: label?.name || "N/A",
-      value: label?.value || "N/A",
-    }));
-    return this.addTable(pdf, labelData, pageWidth, yPos, margin, ensureSpace);
-  }
-
-  addParametersSection(pdf, parameters, pageWidth, yPos, margin, ensureSpace) {
-    const paramData = parameters.map((param) => ({
-      label: param?.name || "N/A",
-      value: String(param?.value ?? "N/A"),
-    }));
-    return this.addTable(pdf, paramData, pageWidth, yPos, margin, ensureSpace);
-  }
-
-  addLinksSection(pdf, links, pageWidth, yPos, margin, ensureSpace) {
-    const linkData = links.map((link) => ({
-      label: link?.name || link?.type || "Link",
-      value: link?.url || "N/A",
-    }));
-    return this.addTable(pdf, linkData, pageWidth, yPos, margin, ensureSpace);
-  }
-
-  addDescriptionSection(pdf, description, pageWidth, yPos, margin, ensureSpace) {
-    pdf.setFontSize(10);
-    pdf.setTextColor(...this.colors.text);
-        pdf.setFont("helvetica", "normal");
-        
-    const descLines = pdf.splitTextToSize(String(description), pageWidth - 2 * margin - 10);
-    descLines.forEach((line) => {
-      ensureSpace(6);
-      pdf.text(line, margin + 5, yPos);
-      yPos += 6;
-    });
-
-    return yPos + 5;
-  }
-
-  addStatusDetailsSection(pdf, statusDetails, pageWidth, yPos, margin, ensureSpace) {
-    pdf.setFontSize(10);
-    pdf.setTextColor(...this.colors.text);
-
-    if (statusDetails?.message) {
-        pdf.setFont("helvetica", "bold");
-      pdf.text("Message:", margin + 5, yPos);
-      yPos += 7;
-
-        pdf.setFont("helvetica", "normal");
-      pdf.setTextColor(...this.colors.danger);
-        
-      const messageLines = pdf.splitTextToSize(String(statusDetails.message), pageWidth - 2 * margin - 10);
-          messageLines.forEach((line) => {
-        ensureSpace(6);
-        pdf.text(line, margin + 5, yPos);
-        yPos += 6;
-      });
-
-      yPos += 5;
-      pdf.setTextColor(...this.colors.text);
-    }
-
-    if (statusDetails?.trace) {
-          pdf.setFont("helvetica", "bold");
-      pdf.setTextColor(...this.colors.text);
-      pdf.text("Stack Trace:", margin + 5, yPos);
-      yPos += 7;
-
-          pdf.setFont("helvetica", "normal");
-          pdf.setFontSize(8);
-      pdf.setTextColor(...this.colors.textLight);
-
-      const traceLines = pdf.splitTextToSize(String(statusDetails.trace), pageWidth - 2 * margin - 10);
-          traceLines.forEach((line) => {
-        ensureSpace(5);
-        pdf.text(line, margin + 5, yPos);
-        yPos += 5;
-      });
-
-          pdf.setFontSize(10);
-      pdf.setTextColor(...this.colors.text);
-    }
-
-    return yPos;
-  }
-
-  async addAttachmentsSection(pdf, allAttachments, pageWidth, pageHeight, yPos, margin, ensureSpace) {
-        const imageAttachments = [];
-        const otherAttachments = [];
-        
-        for (const attachment of allAttachments) {
-      const info = attachmentType(attachment?.type);
-      if (info?.type === "image" || info?.type === "svg") imageAttachments.push(attachment);
-      else otherAttachments.push(attachment);
-    }
-
-    if (otherAttachments.length > 0) {
-      const attachmentData = otherAttachments.map((att) => ({
-        label: att?.name || att?.source || "Attachment",
-        value: att?.type || "unknown",
-      }));
-      yPos = this.addTable(pdf, attachmentData, pageWidth, yPos, margin, ensureSpace);
-    }
-
-        if (imageAttachments.length > 0) {
-          for (const attachment of imageAttachments) {
-            try {
-          const mime = String(attachment?.type || "").toLowerCase();
-          const isSvg = mime.includes("svg");
-
-          const imageUrl = await reportDataUrl(`data/attachments/${attachment.source}`, attachment.type);
-
-          const imgData = isSvg
-            ? await this.loadSvgAsPngDataUrl(imageUrl)
-            : await this.loadImageAsDataUrl(imageUrl);
-
-          if (!imgData || typeof imgData !== "string") {
-            throw new Error("Failed to load image data");
-          }
-
-          const format = detectImageFormatFromDataUrl(imgData) || "PNG";
-
-              const maxWidth = pageWidth - 2 * margin;
-          const maxHeight = pageHeight - yPos - 30;
-              
-          const { width: pxW, height: pxH } = await this.getImageDimensions(imgData);
-              
-              const pxToMm = 0.264583;
-          let imgWidth = pxW * pxToMm;
-          let imgHeight = pxH * pxToMm;
-              
-              if (imgWidth > maxWidth) {
-            const r = maxWidth / imgWidth;
-                imgWidth = maxWidth;
-            imgHeight *= r;
+            if (this.isImageAttachment(att)) {
+              try {
+                const imageUrl = await reportDataUrl(`data/attachments/${att.source}`, att.type);
+                if (imageUrl) {
+                  yPos = await this.addImageToPdf(pdf, imageUrl, att, margin, yPos, pageWidth, pageHeight);
+                }
+              } catch (e) {
+                console.error("Error loading image attachment:", att?.source, e);
               }
-              if (imgHeight > maxHeight) {
-            const r = maxHeight / imgHeight;
-                imgHeight = maxHeight;
-            imgWidth *= r;
+            }
           }
-
-          ensureSpace(imgHeight + 15);
-
-          pdf.setFontSize(9);
-          pdf.setTextColor(...this.colors.text);
-              pdf.setFont("helvetica", "normal");
-
-          const imageName = attachment?.name || attachment?.source || "Image";
-          const nameLines = pdf.splitTextToSize(String(imageName), maxWidth);
-              nameLines.forEach((line) => {
-            ensureSpace(5);
-            pdf.text(line, margin + 5, yPos);
-            yPos += 5;
-          });
-
-          yPos += 2;
-
-          pdf.addImage(imgData, format, margin + 5, yPos, imgWidth, imgHeight);
-          yPos += imgHeight + 5;
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error(`Error loading image attachment: ${attachment?.source}`, err);
-          ensureSpace(7);
-          pdf.setFontSize(10);
-          pdf.setTextColor(...this.colors.textLight);
-              pdf.setFont("helvetica", "normal");
-          pdf.text(`- ${attachment?.name || attachment?.source || "image"} (failed to load)`, margin + 5, yPos);
-          yPos += 7;
         }
-      }
-    }
 
-    return yPos;
-  }
-
-  addTable(pdf, data, pageWidth, yPos, margin, ensureSpace, rowFormatter = null) {
-    const col1Width = (pageWidth - 2 * margin) * 0.35;
-    const col2Width = (pageWidth - 2 * margin) * 0.65;
-    const rowHeight = 8;
-    const headerHeight = 8;
-
-    ensureSpace(headerHeight + 2);
-
-    const headerColor = [52, 73, 94];
-    pdf.setFillColor(...headerColor);
-    pdf.rect(margin, yPos - headerHeight / 2, pageWidth - 2 * margin, headerHeight, "F");
-
-    pdf.setFontSize(10);
-    pdf.setFont("helvetica", "bold");
-    pdf.setTextColor(255, 255, 255);
-    pdf.text("Name", margin + 5, yPos);
-    pdf.text("Value", margin + col1Width + 5, yPos);
-    yPos += headerHeight + 1;
-
-    data.forEach((row, index) => {
-      const labelText = String(row?.label ?? row?.name ?? "N/A");
-      const valueText = String(row?.value ?? "N/A");
-
-      const labelLines = pdf.splitTextToSize(labelText, col1Width - 10);
-      const valueLines = pdf.splitTextToSize(valueText, col2Width - 10);
-      const maxLines = Math.max(labelLines.length, valueLines.length);
-      const currentRowHeight = Math.max(maxLines * 5, rowHeight);
-
-      ensureSpace(currentRowHeight + 2);
-
-      if (rowFormatter) {
-        rowFormatter(row, index);
-      } else {
-        pdf.setFillColor(245, 245, 245);
-        pdf.rect(margin, yPos - currentRowHeight / 2, pageWidth - 2 * margin, currentRowHeight, "F");
-
-        pdf.setTextColor(...this.colors.text);
-        pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(10);
+        // Render sub-steps
+        if (Array.isArray(step?.steps) && step.steps.length > 0) {
+          for (const sub of step.steps) {
+            await addStep(sub, level + 1);
+          }
+        }
+        return; // Skip the rest of step rendering (name, status, duration, Step Details)
       }
 
-      pdf.setDrawColor(...this.colors.border);
-      pdf.setLineWidth(0.2);
-      pdf.line(margin, yPos - currentRowHeight / 2, pageWidth - margin, yPos - currentRowHeight / 2);
-
-      for (let i = 0; i < maxLines; i++) {
-        const textY = yPos + i * 5 - currentRowHeight / 2 + 5;
-        if (i < labelLines.length) pdf.text(labelLines[i], margin + 5, textY);
-        if (i < valueLines.length) pdf.text(valueLines[i], margin + col1Width + 5, textY);
+      // Page break
+      if (yPos > pageHeight - 25) {
+        pdf.addPage();
+        this.setupUnicodeFont(pdf);
+        yPos = margin;
       }
 
-      yPos += currentRowHeight + 1;
-    });
-
-    pdf.setDrawColor(0, 0, 0);
-    pdf.setLineWidth(0.5);
-    pdf.line(margin, yPos - 1, pageWidth - margin, yPos - 1);
-
-    return yPos + 5;
-  }
-
-  addStepsToPdf(pdf, steps, margin, startY, pageWidth, pageHeight, ensureSpace) {
-    let yPos = startY;
-
-    const addStep = (step, indent = 0) => {
-      ensureSpace(8);
-
-      const indentSize = indent * 8;
-      const stepWidth = pageWidth - 2 * margin - indentSize - 10;
+      const cols = this.getStepColumns(pageWidth, margin);
+      const levelIndent = Math.min(16, level * 3); // small indent => "shift left" requirement
+      const dotX = cols.nameX - 3 + levelIndent;
 
       const status = step?.status || "unknown";
       const statusColor = this.getStatusColor(status);
-      pdf.setFillColor(...statusColor);
-      pdf.circle(margin + indentSize + 3, yPos - 2, 2, "F");
 
+      // --- Duration (real, from Allure) ---
+      const durationMs = this.getDurationMs(step?.time, step?.duration);
+      const durationText = durationMs !== null ? this.formatShortDuration(durationMs) : "N/A";
+
+      // --- Name (wrapped) ---
+      const nameText = this.normalizeText(stepNameRaw);
       pdf.setFontSize(9);
-      pdf.setTextColor(...this.colors.text);
-      pdf.setFont("helvetica", "normal");
 
-      const stepText = String(step?.name || "Step");
-      const stepLines = pdf.splitTextToSize(stepText, stepWidth);
-      stepLines.forEach((line, idx) => {
-        if (idx > 0) ensureSpace(6);
-        pdf.text(line, margin + indentSize + 10, yPos);
-        yPos += 6;
+      const availableNameW = cols.nameW - levelIndent;
+      const nameLines = pdf.splitTextToSize(nameText, availableNameW);
+
+      // Height estimation
+      const baseLineH = 4.2;
+      const rowH = Math.max(6, nameLines.length * baseLineH);
+
+      ensureSpace(rowH + 2);
+
+      // Dot (skip for trace steps or steps with Step Details)
+      if (!hideStatusAndDuration) {
+        pdf.setFillColor(...statusColor);
+        pdf.circle(dotX, yPos - 1.5, 1.6, "F");
+      }
+
+      // Columns (skip duration and status for trace steps or steps with Step Details)
+      if (!hideStatusAndDuration) {
+        pdf.setTextColor(90, 90, 90);
+        pdf.text(durationText, cols.durX, yPos);
+        pdf.setTextColor(0, 0, 0);
+      }
+
+      // Name lines
+      nameLines.forEach((line, i) => {
+        if (i > 0) {
+          ensureSpace(baseLineH);
+        }
+        pdf.text(line, cols.nameX + levelIndent, yPos + i * baseLineH);
       });
 
-      if (step?.duration) {
-        pdf.setFontSize(8);
-        pdf.setTextColor(...this.colors.textLight);
-        pdf.text(`(${this.formatDuration(step.duration)})`, margin + indentSize + 10, yPos);
-        yPos += 5;
+      // Status label (skip for trace steps or steps with Step Details)
+      if (!hideStatusAndDuration) {
+        pdf.setTextColor(...statusColor);
+        pdf.text(String(status).toUpperCase(), cols.statusX, yPos, { align: "right" });
+        pdf.setTextColor(0, 0, 0);
       }
 
-      if (Array.isArray(step?.parameters) && step.parameters.length > 0) {
-        yPos += 2;
-        step.parameters.forEach((param) => {
-          ensureSpace(5);
-          pdf.setFontSize(8);
-          pdf.setTextColor(...this.colors.textLight);
-          pdf.text(
-            `  • ${param?.name || "param"}: ${param?.value ?? "N/A"}`,
-            margin + indentSize + 15,
-            yPos
-          );
-          yPos += 5;
-        });
+      yPos += rowH + 1;
+
+      // 2) Step Details: print ALL that belongs to it
+      // Skip renderStepDetails for steps named "Step Details" themselves (they are already rendered)
+      if (!isStepDetailsStep) {
+        yPos = await this.renderStepDetails(pdf, step, margin, yPos, pageWidth, ensureSpace, levelIndent);
       }
 
-      yPos += 3;
+      // 3) Attachments (images only; and exclude step table attachments by name)
+      if (Array.isArray(step?.attachments) && step.attachments.length > 0) {
+        for (const att of step.attachments) {
+          if (!att) {
+            continue;
+          }
+          const attName = String(att?.name || "").trim().toLowerCase();
+          if (attName === "step table") {
+            continue;
+          }
 
+          if (this.isImageAttachment(att)) {
+            try {
+              const imageUrl = await reportDataUrl(`data/attachments/${att.source}`, att.type);
+              if (imageUrl) {
+                yPos = await this.addImageToPdf(pdf, imageUrl, att, cols.nameX + levelIndent, yPos, pageWidth, pageHeight);
+              }
+            } catch (e) {
+              console.error("Error loading image attachment:", att?.source, e);
+            }
+          }
+        }
+      }
+
+      // 4) Sub-steps (exclude "Step Details" as they are already rendered via renderStepDetails)
       if (Array.isArray(step?.steps) && step.steps.length > 0) {
-        step.steps.forEach((sub) => addStep(sub, indent + 1));
+        for (const sub of step.steps) {
+          // Skip "Step Details" steps - they are already rendered in renderStepDetails
+          const subName = String(sub?.name || "").trim().toLowerCase();
+          if (subName === "step details") {
+            continue;
+          }
+          await addStep(sub, level + 1);
+        }
       }
     };
 
-    steps.forEach((s) => addStep(s));
+    for (const s of steps) {
+      await addStep(s, indent);
+    }
+
     return yPos;
   }
-  
-  formatDuration(duration) {
-    const d = Number(duration);
-    if (!Number.isFinite(d) || d < 0) return "0ms";
-    if (d < 1000) return `${Math.round(d)}ms`;
 
-    const seconds = Math.floor(d / 1000);
-    const milliseconds = d % 1000;
+  async renderStepDetails(
+    pdf,
+    step,
+    margin,
+    yPos,
+    pageWidth,
+    ensureSpace,
+    levelIndent,
+  ) {
+    const maxWidth = pageWidth - 2 * margin - levelIndent;
+    const x = margin + levelIndent;
 
-    if (seconds < 60) {
-      return `${seconds}.${String(Math.floor(milliseconds / 100)).padStart(1, "0")}s`;
+    // 1) Direct status details
+    const msg = step?.statusDetails?.message || step?.statusMessage;
+    const trace = step?.statusDetails?.trace || step?.statusTrace;
+
+    // 2) Nested "Step Details" node (like in your sample)
+    const nestedDetailsText = await this.extractNestedStepDetailsText(step);
+
+    const parts = [];
+
+    if (msg) {
+      parts.push({ title: "Message", text: String(msg) });
+    }
+    if (trace) {
+      parts.push({ title: "Trace", text: String(trace) });
+    }
+    if (nestedDetailsText) {
+      parts.push({ title: "Step Details", text: nestedDetailsText });
     }
 
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-
-    if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
-
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    return `${hours}h ${remainingMinutes}m`;
+    if (parts.length === 0) {
+    return yPos;
   }
 
-  async loadImageAsDataUrl(url) {
-    const response = await fetch(url).catch(() => null);
-    if (!response || !response.ok) {
-      throw new Error(`Failed to fetch image: ${response?.status || "unknown"}`);
+    ensureSpace(8);
+          pdf.setFontSize(8);
+    pdf.setTextColor(110, 110, 110);
+    pdf.text("Step Details:", x, yPos);
+            yPos += 5;
+
+    for (const p of parts) {
+      // Skip header for "Step Details" part to avoid duplication (we already have "Step Details:" above)
+      const skipHeader = p.title === "Step Details";
+
+      if (!skipHeader) {
+        const header = `${p.title}:`;
+        ensureSpace(6);
+        pdf.setFontSize(8);
+        pdf.setTextColor(90, 90, 90);
+        pdf.text(header, x, yPos);
+        yPos += 4;
+      } else {
+          yPos += 2;
+      }
+
+      // Don't use normalizeText for Step Details messages to preserve spaces
+      // Text already cleaned by stripHtmlToText, so just remove NULL bytes and control chars
+      let clean = String(p.text || "");
+      // Decode escaped quotes and other JSON escape sequences
+      clean = clean
+        .replace(/\\"/g, '"')  // \" -> "
+        .replace(/\\n/g, "\n") // \n -> newline
+        .replace(/\\t/g, "\t") // \t -> tab
+        .replace(/\\\\/g, "\\"); // \\ -> \
+      // Remove only NULL bytes and BOM, but preserve spaces
+      clean = clean.replace(/\0/g, "").replace(/\uFEFF/g, "");
+      const lines = pdf.splitTextToSize(clean, maxWidth);
+      ensureSpace(lines.length * 3.8 + 2);
+
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(40, 40, 40);
+      pdf.text(lines, x, yPos);
+      yPos += lines.length * 3.8 + 3;
     }
-    const blob = await response.blob();
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error("Failed to read image blob"));
-      reader.readAsDataURL(blob);
-    });
+
+    pdf.setTextColor(0, 0, 0);
+    return yPos;
   }
 
-  async loadSvgAsPngDataUrl(svgUrl) {
-    const response = await fetch(svgUrl).catch(() => null);
-    if (!response || !response.ok) {
-      throw new Error(`Failed to fetch svg: ${response?.status || "unknown"}`);
+  async extractNestedStepDetailsText(step) {
+    // Find a nested step named "Step Details" ONLY in direct children (not recursively)
+    // This prevents duplication when multiple nested steps have "Step Details"
+    if (!Array.isArray(step?.steps)) {
+      return null;
     }
-    const svgText = await response.text();
 
-    const svgBlob = new Blob([svgText], { type: "image/svg+xml" });
-    const objectUrl = URL.createObjectURL(svgBlob);
+    for (const cur of step.steps) {
+      if (!cur) {
+        continue;
+      }
 
+      const nm = String(cur?.name || "").trim().toLowerCase();
+      if (nm === "step table") {
+        continue;
+      }
+
+      if (nm === "step details") {
+        const atts = Array.isArray(cur?.attachments) ? cur.attachments : [];
+        const textAtt = atts.find((a) => {
+          const t = String(a?.type || "").toLowerCase();
+          const name = String(a?.name || "").trim().toLowerCase();
+          if (name === "step table") {
+            return false;
+          }
+          return t.includes("text/plain") || t.includes("text/html");
+        });
+
+        if (textAtt?.source) {
+          try {
+            const url = await reportDataUrl(`data/attachments/${textAtt.source}`, textAtt.type);
+            if (!url) {
+              return null;
+            }
+            const raw = await this.fetchText(url);
+            return this.stripHtmlToText(raw);
+          } catch (e) {
+            console.error("Failed to load nested Step Details attachment:", e);
+            return null;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  async fetchText(url) {
+    const res = await fetch(url).catch(() => null);
+    if (!res || !res.ok) {
+      throw new Error(`HTTP ${res?.status || "unknown"} for ${url}`);
+    }
+
+    // Get arrayBuffer to detect encoding properly
+    const buf = await res.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+
+    // --- 1) Detect BOM (Byte Order Mark) ---
+    let encoding = "utf-8";
+    if (bytes.length >= 2) {
+      if (bytes[0] === 0xFF && bytes[1] === 0xFE) {
+        encoding = "utf-16le"; // UTF-16 Little Endian
+      } else if (bytes[0] === 0xFE && bytes[1] === 0xFF) {
+        encoding = "utf-16be"; // UTF-16 Big Endian
+      }
+    }
+    if (bytes.length >= 3) {
+      if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+        encoding = "utf-8"; // UTF-8 with BOM
+      }
+    }
+
+    // --- 2) Heuristic: many zero bytes => UTF-16LE ---
+    // UTF-16LE often has many null bytes (0x00) in high bytes of ASCII characters
+    if (encoding === "utf-8" && bytes.length > 0) {
+      let zeroCount = 0;
+      const sampleSize = Math.min(bytes.length, 2000);
+      const sample = bytes.subarray(0, sampleSize);
+      for (let i = 0; i < sample.length; i++) {
+        if (sample[i] === 0x00) {
+          zeroCount++;
+        }
+      }
+      // If more than 10% are zeros, likely UTF-16LE
+      if (zeroCount > sampleSize * 0.1) {
+        encoding = "utf-16le";
+      }
+    }
+
+    // --- 3) Decode with detected encoding ---
+    const text = new TextDecoder(encoding, { fatal: false }).decode(buf);
+
+    // --- 4) Remove BOM leftovers and NULL bytes ---
+    return text.replace(/\uFEFF/g, "").replace(/\0/g, "");
+  }
+
+  stripHtmlToText(html) {
+    // Quick & safe HTML->text for Step Details tables/blocks
+    const s = String(html || "");
+    // Remove scripts/styles
+    const noScripts = s.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, "");
+    // Replace <br> and </p> with newlines
+    const withNl = noScripts.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n");
+    // Remove tags
+    let text = withNl.replace(/<[^>]+>/g, " ");
+
+    // Decode HTML entities properly using browser DOM API
     try {
-      const img = await new Promise((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error("Failed to load svg into Image"));
-        image.src = objectUrl;
+      const textarea = document.createElement("textarea");
+      textarea.innerHTML = text;
+      text = textarea.value || textarea.textContent || text;
+    } catch (e) {
+      // Fallback: manual entity decoding if DOM API fails
+      text = text
+        // Decode numeric entities first (e.g., &#123; or &#x1F;)
+        .replace(/&#x([0-9A-Fa-f]+);/g, (match, hex) => {
+          try {
+            return String.fromCharCode(parseInt(hex, 16));
+          } catch (e) {
+            return match;
+          }
+        })
+        .replace(/&#(\d+);/g, (match, dec) => {
+          try {
+            return String.fromCharCode(parseInt(dec, 10));
+          } catch (e) {
+            return match;
+          }
+        })
+        // Then decode named entities (order matters: &amp; must be last)
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&"); // Must be last to avoid double-decoding
+    }
+
+    // Clean up: remove standalone & that are not part of entities (likely artifacts)
+    // This fixes cases like "&N&G&P" or "&N&G&P&V&H&O&S&T&" which should be "NGPVHOST"
+    // More aggressive pattern: remove all "&" symbols that are followed by a single character and space/&/end
+    text = text
+      // First pass: remove patterns like "&N&", "&G&", "&P&" etc. (character surrounded by &)
+      .replace(/&([A-Za-z0-9_])\s*&/g, "$1")
+      // Second pass: remove "&" before alphanumeric characters (start or after space)
+      .replace(/(^|\s)&([A-Za-z0-9_])/g, "$1$2")
+      // Third pass: remove "&" after alphanumeric characters (before space or end)
+      .replace(/([A-Za-z0-9_])\s*&(\s|$)/g, "$1$2")
+      // Fourth pass: remove standalone "&" surrounded by spaces
+      .replace(/\s+&\s+/g, " ")
+      // Clean up whitespace (but preserve single spaces between words)
+      .replace(/\s+\n/g, "\n")
+      .replace(/\n\s+/g, "\n")
+      .replace(/[ \t]{2,}/g, " ") // Replace multiple spaces/tabs with single space
+      .trim();
+
+    // Don't use normalizeText here to preserve spaces in Step Details text
+    // Just decode JSON escape sequences and remove NULL bytes/BOM
+    text = text
+      .replace(/\\"/g, '"')  // \" -> "
+      .replace(/\\n/g, "\n") // \n -> newline
+      .replace(/\\t/g, "\t") // \t -> tab
+      .replace(/\\\\/g, "\\") // \\ -> \
+      .replace(/\0/g, "") // Remove NULL bytes
+      .replace(/\uFEFF/g, ""); // Remove BOM
+
+    return text;
+  }
+
+  normalizeText(input) {
+    // Fix weird spacing/encoding artifacts + normalize unicode
+    // This helps with strings like "NGPVHOST_..._trace" and prevents accidental split-like rendering.
+    let str = String(input ?? "");
+
+    // Remove null bytes, BOM, and control characters
+    // Use character code checking to avoid linter issues with control chars in regex
+    str = str.replace(/./g, (char) => {
+      const code = char.charCodeAt(0);
+      // Remove NULL bytes (0x00) and BOM (0xFEFF)
+      if (code === 0x00 || code === 0xFEFF) {
+        return "";
+      }
+      // Replace control characters (0x01-0x1F, 0x7F) with space, keep space/tab
+      if ((code >= 0x01 && code <= 0x1F) || code === 0x7F) {
+        return " ";
+      }
+      // Keep all other characters
+      return char;
+    });
+
+    // First, fix HTML entities artifacts like "&N&G&P&V&H&O&S&T&" -> "NGPVHOST"
+    // This pattern appears when HTML entities are partially decoded or malformed
+    // Apply multiple passes to handle various patterns
+    for (let i = 0; i < 5; i++) {
+      // Stop if no more "&" patterns found
+      const before = str;
+      str = str
+        // Remove patterns like "&N&", "&G&", "&P&" (character surrounded by &)
+        .replace(/&([A-Za-z0-9_])&/g, "$1")
+        // Remove "&" before alphanumeric characters (start or after space/&)
+        .replace(/(^|\s|&)&([A-Za-z0-9_])/g, "$1$2")
+        // Remove "&" after alphanumeric characters (before space/&/end)
+        .replace(/([A-Za-z0-9_])&(\s|&|$)/g, "$1$2")
+        // Remove standalone "&" surrounded by spaces
+        .replace(/\s+&\s+/g, " ");
+      // If no changes, stop iterating
+      if (str === before) {
+        break;
+      }
+    }
+
+    // Fix encoding issues: replace problematic Unicode characters that jsPDF can't render
+    // This fixes issues like "Ø=Ü÷" or spaced-out text "N G P V H O S T"
+    // Try to detect and fix encoding problems
+    str = str
+      // Fix broken Unicode sequences that appear as single characters with spaces
+      // This fixes "NGPVHOS T _ 8 b e 7 7" -> "NGPVHOST_8be77"
+      // BUT preserve spaces in duration format like "49s 306ms"
+      .replace(/([A-Za-z0-9_])\s+(?=[A-Za-z0-9_])/g, (match, p1, offset, fullStr) => {
+        // Don't remove space if it's part of duration format: "Xs Yms" or "Xms Ys"
+        const before = fullStr.substring(Math.max(0, offset - 10), offset);
+        const after = fullStr.substring(offset, Math.min(fullStr.length, offset + 10));
+        // Check if this is a duration format pattern (number + unit + space + number + unit)
+        if (/\d+[sm]?\s+\d+[ms]?/i.test(before + after)) {
+          return match; // Keep the space
+        }
+        return p1; // Remove the space
+      })
+      // More aggressive: remove spaces between alphanumeric characters in sequences
+      // BUT preserve spaces in duration format like "49s 306ms"
+      .replace(/([A-Za-z0-9])\s+([A-Za-z0-9])/g, (match, p1, p2, offset, fullStr) => {
+        // Don't remove space if it's part of duration format: "Xs Yms" or "Xms Ys"
+        const before = fullStr.substring(Math.max(0, offset - 10), offset);
+        const after = fullStr.substring(offset + match.length, Math.min(fullStr.length, offset + match.length + 10));
+        // Check if this is a duration format pattern (number + unit + space + number + unit)
+        if (/\d+[sm]?\s+\d+[ms]?/i.test(before + match + after)) {
+          return match; // Keep the space
+        }
+        return p1 + p2; // Remove the space
+      })
+      // Remove zero-width spaces and other invisible Unicode characters
+      .replace(/[\u200B-\u200D\uFEFF]/g, "")
+      // Replace common broken Unicode characters with their ASCII equivalents
+      .replace(/Ø/g, "O")
+      .replace(/Ü/g, "U")
+      .replace(/÷/g, "/")
+      .replace(/[^\u0020-\u007E]/g, (char) => {
+        // For non-ASCII characters, try to normalize
+        try {
+          const normalized = char.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          // If normalization doesn't help, replace with closest ASCII equivalent
+          const asciiRange = /[\u0020-\u007E]/;
+          if (!asciiRange.test(normalized)) {
+            return ""; // Remove if still non-ASCII after normalization
+          }
+          return normalized;
+        } catch (e) {
+          return ""; // Remove on error
+        }
       });
 
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width || 1200;
-      canvas.height = img.height || 800;
+    // Normalize Unicode (NFKC is best for compatibility)
+    try {
+      str = str.normalize("NFKC");
+    } catch (e) {
+      // If normalization fails, continue with the string as-is
+    }
 
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas 2D context not available");
+    // Clean up whitespace
+    str = str.replace(/\s+/g, " ").trim();
 
-      ctx.drawImage(img, 0, 0);
-      return canvas.toDataURL("image/png");
-    } finally {
-      URL.revokeObjectURL(objectUrl);
+    return str;
+  }
+
+  getDurationMs(timeObj, fallbackDuration) {
+    const d = timeObj?.duration;
+    if (Number.isFinite(d) && d >= 0) {
+      return d;
+    }
+
+    const s = timeObj?.start;
+    const e = timeObj?.stop;
+    if (Number.isFinite(s) && Number.isFinite(e) && e >= s) {
+      return e - s;
+    }
+
+    if (Number.isFinite(fallbackDuration) && fallbackDuration >= 0) {
+      return fallbackDuration;
+    }
+    return null;
+  }
+
+  formatDurationMs(ms) {
+    const total = Math.max(0, Math.floor(Number(ms) || 0));
+    const seconds = Math.floor(total / 1000);
+    const milliseconds = total % 1000;
+
+    // Format: "49s 306ms" (with space between seconds and milliseconds)
+    if (milliseconds === 0) {
+      return `${seconds}s`;
+    }
+    return `${seconds}s ${milliseconds}ms`;
+  }
+
+  formatShortDuration(ms) {
+    const v = Math.max(0, Math.floor(Number(ms) || 0));
+    if (v < 1000) {
+      return `${v}ms`;
+    }
+    const s = v / 1000;
+    if (s < 60) {
+      return `${s.toFixed(1)}s`;
+    }
+    const m = Math.floor(s / 60);
+    const r = (s % 60).toFixed(1);
+    return `${m}m ${r}s`;
+  }
+
+  getStatusColor(status) {
+    switch (status) {
+      case "passed":
+        return [22, 163, 74];
+      case "failed":
+        return [220, 38, 38];
+      case "broken":
+        return [245, 158, 11];
+      case "skipped":
+        return [107, 114, 128];
+      default:
+        return [55, 65, 81];
     }
   }
 
-  getImageDimensions(dataUrl) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve({ width: img.width, height: img.height });
-      img.onerror = () => reject(new Error("Failed to read image dimensions"));
-      img.src = dataUrl;
+  isImageAttachment(attachment) {
+    if (!attachment || !attachment.type) {
+      return false;
+    }
+    const type = String(attachment.type).toLowerCase();
+    return (
+      type === "image/png" ||
+      type === "image/jpeg" ||
+      type === "image/jpg" ||
+      type === "image/webp" ||
+      type.startsWith("image/")
+    );
+  }
+
+  async addImageToPdf(pdf, imageUrl, attachment, x, yPos, pageWidth, pageHeight) {
+    return new Promise((resolve) => {
+      try {
+        const maxImageHeight = 110;
+        if (yPos + maxImageHeight > pageHeight - 16) {
+          pdf.addPage();
+          this.setupUnicodeFont(pdf);
+          yPos = 16;
+        }
+
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+
+        img.onload = () => {
+          try {
+            const maxWidth = pageWidth - x - 16;
+            const maxHeight = Math.min(maxImageHeight, pageHeight - yPos - 16);
+
+            const pxToMm = 0.264583;
+            let imgWidth = img.width * pxToMm;
+            let imgHeight = img.height * pxToMm;
+
+            const scale = Math.min(maxWidth / imgWidth, maxHeight / imgHeight, 1);
+            imgWidth *= scale;
+            imgHeight *= scale;
+
+            // label
+        pdf.setFontSize(8);
+            pdf.setTextColor(110, 110, 110);
+            const imageName = this.normalizeText(attachment?.name || attachment?.source || "Screenshot");
+            pdf.text(`Image: ${imageName}`, x, yPos);
+        yPos += 5;
+
+            let format = "PNG";
+            const t = String(attachment.type || "").toLowerCase();
+            if (t.includes("jpeg") || t.includes("jpg")) {
+              format = "JPEG";
+            }
+            if (t.includes("png")) {
+              format = "PNG";
+            }
+            if (t.includes("webp")) {
+              // jsPDF webp support may vary; skip safely
+              resolve(yPos);
+              return;
+            }
+
+            pdf.addImage(imageUrl, format, x, yPos, imgWidth, imgHeight);
+            yPos += imgHeight + 5;
+
+            pdf.setTextColor(0, 0, 0);
+            resolve(yPos);
+          } catch (e) {
+            console.error("Error adding image to PDF:", e);
+            resolve(yPos);
+          }
+        };
+
+        img.onerror = () => resolve(yPos);
+        img.src = imageUrl;
+      } catch (e) {
+        console.error("Error processing image attachment:", e);
+        resolve(yPos);
+      }
     });
+  }
+
+  translate(key, defaultValue) {
+    return this.options.translate ? this.options.translate(key, defaultValue) : defaultValue;
   }
 }
 
