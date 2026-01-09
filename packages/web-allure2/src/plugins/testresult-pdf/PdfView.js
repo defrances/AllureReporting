@@ -86,7 +86,12 @@ class PdfView extends View {
       yPos = addKeyValue(pdf, "Name", testData.name || "N/A", margin, yPos, pageWidth, ensureSpace);
       yPos = addKeyValue(pdf, "Status", String(testData.status || "unknown").toUpperCase(), margin, yPos, pageWidth, ensureSpace);
       yPos = addKeyValue(pdf, "Full Name", testData.fullName || "N/A", margin, yPos, pageWidth, ensureSpace);
-      yPos = addKeyValue(pdf, "UID", testData.uid || "N/A", margin, yPos, pageWidth, ensureSpace);
+
+      const testIdParam = Array.isArray(testData.parameters)
+        ? testData.parameters.find((p) => p?.name === "test_id")
+        : null;
+      const uidValue = testIdParam?.value || testData.testId || testData.uid || "N/A";
+      yPos = addKeyValue(pdf, "TestID", uidValue, margin, yPos, pageWidth, ensureSpace);
 
       const durationMs = testData.time?.duration;
       const durationText = Number.isFinite(durationMs) ? formatDurationMs(durationMs) : "N/A";
@@ -98,10 +103,8 @@ class PdfView extends View {
       pdf.text(lines, margin, yPos);
       yPos += lines.length * 5 + 2;
 
-      // Attachments (zip files, especially RanorexFullReport.zip)
       yPos = await this.addTestAttachments(pdf, testData, margin, yPos, pageWidth, ensureSpace);
 
-      // Description (test description)
       const description = testData.description || testData.descriptionHtml;
       if (description) {
         yPos += 4;
@@ -111,8 +114,6 @@ class PdfView extends View {
         yPos += 7;
         pdf.setFontSize(9);
 
-        // If descriptionHtml is available, convert HTML to text
-        // Otherwise use plain description
         const descriptionText = testData.descriptionHtml
           ? stripHtmlToText(testData.descriptionHtml)
           : String(testData.description || "");
@@ -283,12 +284,45 @@ class PdfView extends View {
     const baseUrl = getAllureBaseUrl();
     console.log("[PDF] Total zip attachments found:", zipAttachments.length);
 
-    for (const att of zipAttachments) {
+    const ranorexMatcher = /ranorexfullreport/i;
+    const ranorexAttachments = zipAttachments.filter((a) => ranorexMatcher.test(String(a.name || a.source || "")));
+    const remainingAttachments = zipAttachments.filter((a) => !ranorexMatcher.test(String(a.name || a.source || "")));
+
+    if (ranorexAttachments.length > 0) {
+      for (const ra of ranorexAttachments) {
+        const raName = String(ra.name || ra.source || "RanorexFullReport.zip");
+        const raUrl = `${baseUrl}data/attachments/${ra.source}`;
+        console.log("[PDF] Adding Ranorex download link:", raName, "->", raUrl);
+
+        ensureSpace(10);
+        pdf.setFontSize(10);
+        pdf.setTextColor(0, 0, 128);
+
+        const x0 = margin;
+        const linkLabel = "Download Ranorex full archive";
+        if (typeof pdf.textWithLink === "function") {
+          pdf.textWithLink(linkLabel, x0, yPos, { url: raUrl });
+        } else {
+          pdf.text(linkLabel, x0, yPos);
+          const textWidth = pdf.getTextWidth(linkLabel);
+          pdf.link(x0, yPos - 5, textWidth, 7, { url: raUrl });
+        }
+
+        yPos += 6;
+        pdf.setFontSize(8);
+        pdf.setTextColor(110, 110, 110);
+        pdf.text(raName, x0 + 4, yPos);
+        pdf.setTextColor(0, 0, 0);
+        yPos += 6;
+      }
+    }
+
+    for (const att of remainingAttachments) {
       const attName = String(att.name || att.source || "attachment.zip");
       const attUrl = `${baseUrl}data/attachments/${att.source}`;
       console.log("[PDF] Adding attachment link:", attName, "->", attUrl);
 
-        ensureSpace(6);
+      ensureSpace(6);
       pdf.setTextColor(0, 0, 128);
 
       const x = margin + 5;
@@ -383,7 +417,7 @@ class PdfView extends View {
       }
 
       const cols = getStepColumns(pageWidth, margin);
-      const levelIndent = Math.min(16, level * 3); // small indent => "shift left" requirement
+      const levelIndent = Math.min(16, level * 3);
       const dotX = cols.nameX - 3 + levelIndent;
 
       const status = step?.status || "unknown";
