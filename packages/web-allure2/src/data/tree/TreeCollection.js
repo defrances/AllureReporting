@@ -22,13 +22,13 @@ export default class TreeCollection extends Collection {
     return findWhere(this.allResults, { parentUid, uid });
   }
 
-  getFlattenTestResults(children) {
+  getFlattenTestResults(children, parentUid = null) {
     return flatten(
       children.map((child) => {
         if (child.children) {
-          return this.getFlattenTestResults(child.children);
+          return this.getFlattenTestResults(child.children, child.uid);
         }
-        return child;
+        return { ...child, parentUid };
       }),
     );
   }

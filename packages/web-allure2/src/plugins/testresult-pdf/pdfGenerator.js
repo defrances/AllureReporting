@@ -21,6 +21,7 @@ import {
 } from "./pdfUtils.js";
 import {
   addKeyValue,
+  addKeyValueWithLink,
   addWrappedBlock,
   addStepsHeader,
   addStageTitle,
@@ -401,7 +402,26 @@ export async function generateTestPdf(pdf, testData, options = {}) {
     ? testData.parameters.find((p) => p?.name === "test_id")
     : null;
   const uidValue = testIdParam?.value || testData.testId || testData.uid || "N/A";
-  yPos = addKeyValue(pdf, "TestID", uidValue, margin, yPos, pageWidth, ensureSpace);
+  if (uidValue !== "N/A") {
+    try {
+      let testIdUrl;
+      if (typeof window !== "undefined" && window.location) {
+        const baseUrl = getAllureBaseUrl();
+        const hashIndex = baseUrl.indexOf("#");
+        const cleanBaseUrl = hashIndex >= 0 ? baseUrl.substring(0, hashIndex) : baseUrl;
+        testIdUrl = `${cleanBaseUrl}#suites?searchQuery=${encodeURIComponent(uidValue)}`;
+      } else {
+        testIdUrl = `#suites?searchQuery=${encodeURIComponent(uidValue)}`;
+      }
+      yPos = addKeyValueWithLink(pdf, "TestID", uidValue, testIdUrl, margin, yPos, pageWidth, ensureSpace);
+    } catch (e) {
+      /* eslint-disable-next-line no-console */
+      console.warn("Failed to create TestID link:", e.message || e);
+      yPos = addKeyValue(pdf, "TestID", uidValue, margin, yPos, pageWidth, ensureSpace);
+    }
+  } else {
+    yPos = addKeyValue(pdf, "TestID", uidValue, margin, yPos, pageWidth, ensureSpace);
+  }
 
   const durationMs = testData.time?.duration;
   const durationText = Number.isFinite(durationMs) ? formatDurationMs(durationMs) : "N/A";

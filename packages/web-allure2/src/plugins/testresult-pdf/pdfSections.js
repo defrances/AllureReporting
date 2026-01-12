@@ -37,6 +37,59 @@ export function addKeyValue(pdf, key, value, margin, yPos, pageWidth, ensureSpac
   return yPos + lines.length * SPACING_KEY_VALUE + 2;
 }
 
+export function addKeyValueWithLink(pdf, key, value, url, margin, yPos, pageWidth, ensureSpace) {
+  const maxWidth = pageWidth - 2 * margin;
+  const keyText = `${key}: `;
+  const valueText = normalizeText(value);
+  const fullText = `${keyText}${valueText}`;
+  const lines = pdf.splitTextToSize(fullText, maxWidth);
+  ensureSpace(lines.length * SPACING_KEY_VALUE + 2);
+  pdf.setFontSize(FONT_SIZE_BODY);
+
+  const keyWidth = pdf.getTextWidth(keyText);
+  let currentY = yPos;
+  let valueRemaining = valueText;
+  let isFirstLine = true;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineWithoutKey = line.startsWith(keyText) ? line.substring(keyText.length) : line;
+
+    if (i === 0) {
+      pdf.text(keyText, margin, currentY);
+      pdf.setTextColor(0, 0, 128);
+      pdf.text(lineWithoutKey, margin + keyWidth, currentY);
+      pdf.setTextColor(0, 0, 0);
+    } else {
+      pdf.text(line, margin, currentY);
+    }
+
+    if (isFirstLine && lineWithoutKey && url) {
+      const valueWidth = pdf.getTextWidth(lineWithoutKey);
+      const valueStartX = margin + keyWidth;
+      if (typeof pdf.textWithLink === "function") {
+        pdf.setTextColor(0, 0, 128);
+        pdf.textWithLink(lineWithoutKey, valueStartX, currentY, { url });
+        pdf.setTextColor(0, 0, 0);
+      } else if (typeof pdf.link === "function") {
+        const linkHeight = 5;
+        const linkYTop = currentY - 4;
+        try {
+          pdf.link(valueStartX, linkYTop, valueWidth, linkHeight, { url });
+        } catch (e) {
+          /* eslint-disable-next-line no-console */
+          console.warn("Failed to create link:", e.message || e);
+        }
+      }
+      isFirstLine = false;
+    }
+
+    currentY += SPACING_KEY_VALUE;
+  }
+
+  return currentY + 2;
+}
+
 export function addWrappedBlock(pdf, label, body, margin, yPos, pageWidth, ensureSpace) {
   const maxWidth = pageWidth - 2 * margin;
   const head = label ? `${label}:` : "";

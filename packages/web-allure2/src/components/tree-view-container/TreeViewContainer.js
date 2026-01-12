@@ -2,12 +2,13 @@ import { Model } from "backbone";
 import { View } from "backbone.marionette";
 import { jsPDF } from "jspdf";
 import MarksToggleView from "@/components/marks-toggle/MarksToggleView.js";
-import NodeSearchView from "@/components/node-search/NodeSearchView.js";
+import NodeSearchView, { SEARCH_QUERY_KEY } from "@/components/node-search/NodeSearchView.js";
 import NodeSorterView from "@/components/node-sorter/NodeSorterView.js";
 import StatusToggleView from "@/components/status-toggle/StatusToggleView.js";
 import TreeView from "@/components/tree/TreeView.js";
 import TestResultModel from "@/data/testresult/TestResultModel.js";
 import { behavior, className, on, regions } from "@/decorators/index.js";
+import router from "@/router.js";
 import gtag from "@/utils/gtag.js";
 import { getSettingsForTreePlugin } from "@/utils/settingsFactory.js";
 import {
@@ -44,6 +45,12 @@ class TreeViewContainer extends View {
     this.tabName = tabName;
     this.listenTo(this.routeState, "change:testResultTab", this.render);
     this.settings = settings;
+
+    const urlParams = router.getUrlParams();
+    const searchQuery = urlParams[SEARCH_QUERY_KEY];
+    if (searchQuery) {
+      this.state.set(SEARCH_QUERY_KEY, searchQuery);
+    }
   }
 
   @on("click .tree__info")

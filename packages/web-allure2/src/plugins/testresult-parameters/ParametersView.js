@@ -1,4 +1,5 @@
 import { View } from "backbone.marionette";
+import $ from "jquery";
 import { className, on } from "@/decorators/index.js";
 import template from "./ParametersView.hbs";
 import "./styles.scss";
@@ -14,8 +15,9 @@ class ParametersView extends View {
   }
 
   @on("click .environment")
-  onParameterClick() {
-    this.$(".environment").toggleClass("line-ellipsis", false);
+  onParameterClick(e) {
+    const $el = $(e.currentTarget);
+    $el.toggleClass("line-ellipsis", false);
   }
 }
 
