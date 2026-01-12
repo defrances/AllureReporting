@@ -665,12 +665,11 @@ async function addStepsToPdf(
       return;
     }
 
-    const isTraceStep = /^NGPVHOST_.*_trace$/i.test(stepNameRaw.trim());
+    const s = stepNameRaw.trim();
+    const isTraceStep = /^(?:[^_]+_){3,}trace$/i.test(s);
     const isRanorexReportStep = /ranorexfullreport\.zip/i.test(stepNameRaw.trim());
     const isStepDetailsStep = stepNameRaw.trim().toLowerCase() === "step details";
-    const hasNestedStepDetails =
-      Array.isArray(step?.steps) && step.steps.some((s) => String(s?.name || "").trim().toLowerCase() === "step details");
-    const hideStatusAndDuration = isTraceStep || isRanorexReportStep || isStepDetailsStep || hasNestedStepDetails;
+    const hideStatusAndDuration = isTraceStep || isRanorexReportStep || isStepDetailsStep;
 
     if (isTraceStep) {
       if (Array.isArray(step?.attachments) && step.attachments.length > 0) {
