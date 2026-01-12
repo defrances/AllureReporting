@@ -4,7 +4,6 @@ import {
   FONT_SIZE_TITLE,
   FONT_SIZE_SECTION,
   FONT_SIZE_BODY,
-  SPACING_TITLE,
   SPACING_SECTION,
 } from "./pdfConstants.js";
 import {
@@ -28,14 +27,328 @@ import {
   getStepColumns,
 } from "./pdfSections.js";
 
+function safeInternalLink(pdf, x, y, w, h, pageNumber) {
+  const total = pdf.internal.getNumberOfPages();
+  if (!Number.isFinite(pageNumber) || pageNumber < 1 || pageNumber > total) {
+    /* eslint-disable-next-line no-console */
+    console.warn("Invalid link target pageNumber:", pageNumber, "total:", total);
+    return;
+  }
+  if (typeof pdf.link !== "function") {
+    /* eslint-disable-next-line no-console */
+    console.warn("pdf.link is not available. Annotations plugin may be missing.");
+    return;
+  }
+  pdf.link(x, y, w, h, { pageNumber, top: MARGIN, zoom: 0 });
+}
+
+export async function generateFullReportPdf(pdf, allTestResults) {
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = MARGIN;
+
+  const testPages = [];
+  let currentPage = 1;
+  let yPos = margin;
+
+  const ensureSpace = (needed) => {
+    const h = Math.max(0, Math.min(10000, Number(needed) || 0));
+    if (yPos + h > pageHeight - margin) {
+      pdf.addPage();
+      setupUnicodeFont(pdf);
+      currentPage++;
+      yPos = margin;
+      return true;
+    }
+    return false;
+  };
+
+  const addPageNumber = (pageNum) => {
+    const totalPages = pdf.internal.getNumberOfPages();
+    pdf.setFontSize(8);
+    pdf.setTextColor(120, 120, 120);
+    pdf.text(`Page ${pageNum} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" });
+    pdf.setTextColor(0, 0, 0);
+  };
+
+  pdf.setPage(1);
+  setupUnicodeFont(pdf);
+  currentPage = 1;
+  yPos = margin;
+
+  const titlePageNum = currentPage;
+  addTitlePage(pdf, pageWidth, pageHeight);
+  pdf.addPage();
+  setupUnicodeFont(pdf);
+  currentPage++;
+  yPos = margin;
+
+  const contentsPageNum = currentPage;
+  const contentsData = [];
+  pdf.setPage(currentPage);
+  yPos = margin;
+
+  if (allTestResults.length === 0) {
+    pdf.setFontSize(FONT_SIZE_TITLE);
+    pdf.text("Contents", margin, yPos);
+    yPos += 20;
+    pdf.setFontSize(FONT_SIZE_BODY);
+    pdf.text("No tests found", margin, yPos);
+    pdf.addPage();
+    setupUnicodeFont(pdf);
+    currentPage++;
+    yPos = margin;
+  } else {
+    setupUnicodeFont(pdf);
+    pdf.setFontSize(FONT_SIZE_TITLE);
+    pdf.text("Contents", margin, yPos);
+    yPos += 20;
+
+    setupUnicodeFont(pdf);
+    pdf.setFontSize(10);
+    pdf.text("Test Name", margin, yPos);
+    pdf.text("Status", pageWidth - margin - 30, yPos, { align: "right" });
+    yPos += 8;
+    pdf.setDrawColor(200, 200, 200);
+    pdf.line(margin, yPos, pageWidth - margin, yPos);
+    yPos += 5;
+
+    pdf.setFontSize(9);
+    for (let i = 0; i < allTestResults.length; i++) {
+      const testResult = allTestResults[i];
+      if (!testResult || !testResult.uid) {
+        continue;
+      }
+
+      ensureSpace(8);
+      setupUnicodeFont(pdf);
+      const testName = String(testResult.name || `Test ${i + 1}`).slice(0, 80);
+      const status = String(testResult.status || "unknown").toUpperCase();
+
+      const linkY = yPos;
+      const linkPage = currentPage;
+      pdf.setTextColor(0, 0, 200);
+      pdf.text(testName, margin, yPos);
+      pdf.setTextColor(0, 0, 0);
+      pdf.text(status, pageWidth - margin - 30, yPos, { align: "right" });
+
+      const linkTargetPage = null;
+      contentsData.push({
+        testName,
+        status,
+        linkY,
+        linkPage,
+        linkTargetPage,
+        textWidth: pdf.getTextWidth(testName),
+        testIndex: i,
+      });
+
+      yPos += 7;
+    }
+  }
+
+  pdf.addPage();
+  setupUnicodeFont(pdf);
+  currentPage++;
+  pdf.setPage(currentPage);
+  yPos = margin;
+  const summaryPageNum = currentPage;
+
+  yPos = addSummaryPage(pdf, allTestResults, pageWidth, pageHeight, margin, yPos, ensureSpace);
+  pdf.addPage();
+  setupUnicodeFont(pdf);
+  currentPage++;
+  yPos = margin;
+
+  for (let i = 0; i < allTestResults.length; i++) {
+    const testResult = allTestResults[i];
+    if (!testResult || !testResult.uid) {
+      continue;
+    }
+
+    try {
+      const testData = testResult.testData || testResult;
+      const testPageStart = currentPage;
+      pdf.setPage(currentPage);
+      yPos = margin;
+
+      await generateTestPdf(pdf, testData, {
+        startNewPage: false,
+        testNumber: null,
+        showBackToContents: true,
+        contentsPageNum,
+        ensureSpace,
+      });
+
+      const contentsItem = contentsData.find((item) => item.testIndex === i);
+      if (contentsItem) {
+        contentsItem.linkTargetPage = testPageStart;
+      }
+
+      currentPage = pdf.internal.getNumberOfPages();
+      testPages.push({ testIndex: i, pageStart: testPageStart, pageEnd: currentPage });
+
+      if (i < allTestResults.length - 1) {
+        pdf.addPage();
+        setupUnicodeFont(pdf);
+        currentPage++;
+        yPos = margin;
+      }
+    } catch (error) {
+      /* eslint-disable-next-line no-console */
+      console.error(`Error generating PDF for test ${i + 1}:`, error);
+      continue;
+    }
+  }
+
+  pdf.setFontSize(9);
+  setupUnicodeFont(pdf);
+
+  for (const item of contentsData) {
+    if (item.linkTargetPage && item.linkPage) {
+      pdf.setPage(item.linkPage);
+      setupUnicodeFont(pdf);
+      pdf.setFontSize(9);
+      const linkY = item.linkY;
+      const textWidth = item.textWidth || pdf.getTextWidth(item.testName);
+      const linkHeight = 8;
+      const linkYTop = linkY - 5;
+      const linkWidth = Math.max(textWidth, 50);
+
+      safeInternalLink(pdf, margin, linkYTop, linkWidth, linkHeight, item.linkTargetPage);
+    }
+  }
+
+  const finalPageCount = pdf.internal.getNumberOfPages();
+  for (let pageNum = 1; pageNum <= finalPageCount; pageNum++) {
+    pdf.setPage(pageNum);
+    setupUnicodeFont(pdf);
+    addPageNumber(pageNum);
+  }
+
+  if (pdf.outline) {
+    const outline = pdf.outline;
+
+    const root = outline.add(null, "Test Report", null);
+
+    outline.add(root, "Title", { pageNumber: titlePageNum });
+    outline.add(root, "Contents", { pageNumber: contentsPageNum });
+    outline.add(root, "Summary", { pageNumber: summaryPageNum });
+
+    const testsNode = outline.add(root, "Tests", null);
+
+    for (const tp of testPages) {
+      const testResult = allTestResults[tp.testIndex];
+      if (!testResult) {
+        continue;
+      }
+
+      const testName = String(testResult.name || `Test ${tp.testIndex + 1}`).slice(0, 50);
+      outline.add(testsNode, `Test: ${testName}`, { pageNumber: tp.pageStart });
+    }
+  }
+
+  pdf.setDisplayMode("original", "continuous", "UseOutlines");
+}
+
+const addTitlePage = (pdf, pageWidth, pageHeight) => {
+  setupUnicodeFont(pdf);
+  const centerX = pageWidth / 2;
+  const centerY = pageHeight / 2 - 20;
+
+  pdf.setFontSize(24);
+  pdf.text("Test Report", centerX, centerY, { align: "center" });
+
+  pdf.setFontSize(12);
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 10);
+  const timeStr = now.toTimeString().slice(0, 8);
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const timestamp = `${dateStr} ${timeStr} (${timezone})`;
+  pdf.text(timestamp, centerX, centerY + 15, { align: "center" });
+};
+
+const addSummaryPage = (pdf, allTestResults, pageWidth, pageHeight, margin, yPos, ensureSpace) => {
+  setupUnicodeFont(pdf);
+  pdf.setFontSize(FONT_SIZE_TITLE);
+  pdf.text("Summary", margin, yPos);
+  yPos += 20;
+
+  if (allTestResults.length === 0) {
+    pdf.setFontSize(FONT_SIZE_BODY);
+    pdf.text("No tests found", margin, yPos);
+    return yPos;
+  }
+
+  const statusCounts = {
+    passed: 0,
+    failed: 0,
+    broken: 0,
+    skipped: 0,
+    unknown: 0,
+  };
+
+  for (const testResult of allTestResults) {
+    const status = String(testResult.status || "unknown").toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(statusCounts, status)) {
+      statusCounts[status]++;
+    } else {
+      statusCounts.unknown++;
+    }
+  }
+
+  const total = allTestResults.length;
+  const passed = statusCounts.passed;
+  const passRate = total > 0 ? ((passed / total) * 100).toFixed(1) : "0.0";
+
+  pdf.setFontSize(FONT_SIZE_SECTION);
+  pdf.text(`Pass Rate: ${passRate}% (${passed}/${total})`, margin, yPos);
+  yPos += 20;
+
+  const colors = {
+    passed: [76, 175, 80],
+    failed: [244, 67, 54],
+    broken: [255, 152, 0],
+    skipped: [158, 158, 158],
+    unknown: [121, 85, 72],
+  };
+
+  const statusOrder = ["passed", "failed", "broken", "skipped", "unknown"];
+
+  pdf.setFontSize(10);
+  pdf.text("Test Status Distribution:", margin, yPos);
+  yPos += 10;
+
+  pdf.setFontSize(FONT_SIZE_BODY);
+  let legendY = yPos;
+  for (const status of statusOrder) {
+    const count = statusCounts[status];
+    if (count === 0) {
+      continue;
+    }
+
+    const percentage = ((count / total) * 100).toFixed(1);
+    pdf.setFillColor(...colors[status]);
+    pdf.circle(margin, legendY, 3, "F");
+    pdf.setFillColor(0, 0, 0);
+    pdf.setTextColor(0, 0, 0);
+    const label = `${status.toUpperCase()}: ${count} (${percentage}%)`;
+    pdf.text(label, margin + 8, legendY);
+    legendY += 7;
+    ensureSpace(7);
+  }
+
+  return legendY;
+};
+
 export async function generateTestPdf(pdf, testData, options = {}) {
-  const { startNewPage = false, testNumber = null } = options;
+  const { startNewPage = false, testNumber = null, showBackToContents = false, contentsPageNum = null, ensureSpace: externalEnsureSpace = null } = options;
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const margin = MARGIN;
   let yPos = margin;
 
-  const ensureSpace = (needed) => {
+  const ensureSpace = externalEnsureSpace || ((needed) => {
     const h = Math.max(0, Math.min(10000, Number(needed) || 0));
     if (yPos + h > pageHeight - margin) {
       pdf.addPage();
@@ -44,7 +357,7 @@ export async function generateTestPdf(pdf, testData, options = {}) {
       return true;
     }
     return false;
-  };
+  });
 
   if (startNewPage && testNumber > 1) {
     pdf.addPage();
@@ -58,15 +371,26 @@ export async function generateTestPdf(pdf, testData, options = {}) {
   }
 
   setupUnicodeFont(pdf);
-  pdf.setFontSize(FONT_SIZE_TITLE);
-  const title = testNumber ? `Test Report ${testNumber}` : "Test Report";
-  pdf.text(title, pageWidth / 2, yPos, { align: "center" });
-  yPos += SPACING_TITLE;
-
   pdf.setFontSize(FONT_SIZE_SECTION);
-  setupUnicodeFont(pdf);
   pdf.text("Test Overview", margin, yPos);
   yPos += SPACING_SECTION;
+
+  if (showBackToContents && contentsPageNum) {
+    ensureSpace(8);
+    pdf.setFontSize(9);
+    setupUnicodeFont(pdf);
+    pdf.setTextColor(0, 0, 200);
+    const backLinkText = "Back to Contents";
+    const textWidth = pdf.getTextWidth(backLinkText);
+    const backLinkX = pageWidth - margin - textWidth;
+
+    pdf.text(backLinkText, backLinkX, yPos);
+    const linkHeight = 8;
+    const linkYTop = yPos - 5;
+    safeInternalLink(pdf, backLinkX, linkYTop, textWidth, linkHeight, contentsPageNum);
+    pdf.setTextColor(0, 0, 0);
+    yPos += 8;
+  }
 
   pdf.setFontSize(FONT_SIZE_BODY);
   yPos = addKeyValue(pdf, "Name", testData.name || "N/A", margin, yPos, pageWidth, ensureSpace);
@@ -249,22 +573,36 @@ async function addTestAttachments(pdf, testData, margin, yPos, pageWidth, ensure
   yPos += 7;
 
   pdf.setFontSize(9);
-  const baseUrl = getAllureBaseUrl();
 
   for (const att of filteredAttachments) {
     const attName = String(att.name || att.source || "attachment");
-    const attUrl = `${baseUrl}data/attachments/${att.source}`;
+    const attUrl = await reportDataUrl(`data/attachments/${att.source}`, att.type || "application/zip");
 
     ensureSpace(6);
     pdf.setTextColor(0, 0, 128);
 
     const x = margin + 5;
+    setupUnicodeFont(pdf);
+    pdf.setFontSize(9);
+    
     if (typeof pdf.textWithLink === "function") {
       pdf.textWithLink(attName, x, yPos, { url: attUrl });
     } else {
       pdf.text(attName, x, yPos);
       const textWidth = pdf.getTextWidth(attName);
-      pdf.link(x, yPos - 5, textWidth, 7, { url: attUrl });
+      const linkHeight = 8;
+      const linkYTop = yPos - 5;
+      if (typeof pdf.link === "function") {
+        try {
+          pdf.link(x, linkYTop, textWidth, linkHeight, { url: attUrl });
+        } catch (e) {
+          /* eslint-disable-next-line no-console */
+          console.warn("Failed to create attachment link:", e.message || e);
+        }
+      } else {
+        /* eslint-disable-next-line no-console */
+        console.warn("pdf.link is not available for attachment link");
+      }
     }
 
     pdf.setTextColor(0, 0, 0);

@@ -13,7 +13,7 @@ import { getSettingsForTreePlugin } from "@/utils/settingsFactory.js";
 import {
   setupUnicodeFont,
 } from "@/plugins/testresult-pdf/pdfUtils.js";
-import { generateTestPdf } from "@/plugins/testresult-pdf/pdfGenerator.js";
+import { generateFullReportPdf } from "@/plugins/testresult-pdf/pdfGenerator.js";
 import template from "./TreeViewContainer.hbs";
 import "./styles.scss";
 
@@ -71,6 +71,7 @@ class TreeViewContainer extends View {
       const pdf = new jsPDF("p", "mm", "a4");
       setupUnicodeFont(pdf);
 
+      const testDataArray = [];
       for (let i = 0; i < allResults.length; i++) {
         const testResult = allResults[i];
         if (!testResult || !testResult.uid) {
@@ -81,20 +82,22 @@ class TreeViewContainer extends View {
           const model = new TestResultModel({ uid: testResult.uid });
           await model.fetch();
           const testData = model.toJSON();
-
-          await generateTestPdf(pdf, testData, {
-            startNewPage: i > 0,
-            testNumber: i + 1,
+          testDataArray.push({
+            ...testResult,
+            testData,
           });
         } catch (error) {
+          /* eslint-disable-next-line no-console */
           console.error(`Error loading test ${testResult.uid}:`, error);
           continue;
         }
       }
 
+      await generateFullReportPdf(pdf, testDataArray);
+
       const fileName = `all-test-results-${new Date().toISOString().slice(0, 10)}.pdf`;
       pdf.save(fileName);
-      gtag("pdf_all_download_click", { count: allResults.length });
+      gtag("pdf_all_download_click", { count: testDataArray.length });
     } catch (error) {
       console.error("Error generating PDF:", error);
       alert("Error generating PDF: " + error.message);

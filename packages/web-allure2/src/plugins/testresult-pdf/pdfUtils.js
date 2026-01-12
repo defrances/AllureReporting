@@ -11,33 +11,25 @@ import {
 export function getAllureBaseUrl() {
   try {
     const href = String(window.location.href || "");
-    console.log("[PDF] Current location:", href);
 
     const m = href.match(/^(.*\/allure-runs\/[^/]+\/)/i);
     if (m && m[1]) {
-      const baseUrl = m[1];
-      console.log("[PDF] Found allure-runs base URL:", baseUrl);
-      return baseUrl;
+      return m[1];
     }
 
     const m2 = href.match(/^(.*\/projects\/[^/]+\/reports\/allure-runs\/[^/]+\/)/i);
     if (m2 && m2[1]) {
-      const baseUrl = m2[1];
-      console.log("[PDF] Found projects/reports base URL:", baseUrl);
-      return baseUrl;
+      return m2[1];
     }
 
     const pathMatch = href.match(/^(.*\/)/);
     if (pathMatch && pathMatch[1]) {
-      const baseUrl = pathMatch[1];
-      console.log("[PDF] Using path-based base URL:", baseUrl);
-      return baseUrl;
+      return pathMatch[1];
     }
 
-    const fallback = `${window.location.origin}/`;
-    console.log("[PDF] Using origin fallback:", fallback);
-    return fallback;
+    return `${window.location.origin}/`;
   } catch (e) {
+    /* eslint-disable-next-line no-console */
     console.warn("[PDF] Failed to get Allure base URL:", e);
     return `${window.location.origin}/`;
   }
