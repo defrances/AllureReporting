@@ -40,7 +40,7 @@ function safeInternalLink(pdf, x, y, w, h, pageNumber) {
     console.warn("pdf.link is not available. Annotations plugin may be missing.");
     return;
   }
-  pdf.link(x, y, w, h, { pageNumber, top: MARGIN, zoom: 0 });
+  pdf.link(x, y, w, h, { pageNumber, top: 0, zoom: 0 });
 }
 
 export async function generateFullReportPdf(pdf, allTestResults) {
