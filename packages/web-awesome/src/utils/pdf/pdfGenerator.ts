@@ -81,7 +81,7 @@ export async function generateFullReportPdf(
   yPos = margin;
 
   const titlePageNum = currentPage;
-  addTitlePage(pdf, pageWidth, pageHeight);
+  await addTitlePage(pdf, pageWidth, pageHeight);
   pdf.addPage();
   setupUnicodeFont(pdf);
   currentPage++;
@@ -261,7 +261,7 @@ export async function generateFullReportPdf(
   pdf.setDisplayMode("original", "continuous", "UseOutlines");
 }
 
-const addTitlePage = (pdf: any, pageWidth: number, pageHeight: number): void => {
+const addTitlePage = async (pdf: any, pageWidth: number, pageHeight: number): Promise<void> => {
   setupUnicodeFont(pdf);
   const centerX = pageWidth / 2;
   const centerY = pageHeight / 2 - 20;
@@ -447,8 +447,8 @@ export async function generateTestPdf(pdf: any, testData: AwesomeTestResult, opt
     yPos = addKeyValue(pdf, "TestID", uidValue, margin, yPos, pageWidth, ensureSpace);
   }
 
-  const durationMs = testData.time?.duration;
-  const durationText = Number.isFinite(durationMs) ? formatDurationMs(durationMs) : "N/A";
+  const durationMs = getDurationMs(testData.time, testData.duration);
+  const durationText = durationMs !== null ? formatDurationMs(durationMs) : "N/A";
   const maxWidth = pageWidth - 2 * margin;
   const text = `Duration: ${durationText}`;
   const lines = pdf.splitTextToSize(text, maxWidth);
@@ -456,6 +456,15 @@ export async function generateTestPdf(pdf: any, testData: AwesomeTestResult, opt
   pdf.setFontSize(FONT_SIZE_BODY);
   pdf.text(lines, margin, yPos);
   yPos += lines.length * 5 + 2;
+
+  const ranorexAttachment = await findRanorexFullReport(testData);
+  if (ranorexAttachment) {
+    ensureSpace(6);
+    const attName = String(ranorexAttachment.name || ranorexAttachment.source || "RanorexFullReport.zip");
+    const attUrl = await reportDataUrl(`data/attachments/${ranorexAttachment.source}`, ranorexAttachment.type || "application/zip");
+    createAttachmentLink(pdf, attName, attUrl, margin, yPos);
+    yPos += 6;
+  }
 
   yPos = await addTestAttachments(pdf, testData, margin, yPos, pageWidth, ensureSpace);
 
@@ -503,36 +512,182 @@ export async function generateTestPdf(pdf: any, testData: AwesomeTestResult, opt
 
   yPos = addStepsHeader(pdf, margin, yPos, pageWidth, ensureSpace);
 
-  const hasBeforeStages = Array.isArray(testData.beforeStages) && testData.beforeStages.length > 0;
-  const hasTestStage = Array.isArray(testData.testStage?.steps) && testData.testStage.steps.length > 0;
-  const hasAfterStages = Array.isArray(testData.afterStages) && testData.afterStages.length > 0;
+  const hasSetup = Array.isArray(testData.setup) && testData.setup.length > 0;
+  const hasSteps = Array.isArray(testData.steps) && testData.steps.length > 0;
+  const hasTeardown = Array.isArray(testData.teardown) && testData.teardown.length > 0;
 
-  if (hasBeforeStages || hasTestStage || hasAfterStages) {
+  if (hasSetup || hasSteps || hasTeardown) {
     const testStart = testData.time?.start ?? Date.now();
 
-    if (hasBeforeStages) {
+    if (hasSetup) {
       yPos = addStageTitle(pdf, "Set up", margin, yPos, ensureSpace);
-      for (const st of testData.beforeStages) {
-        if (Array.isArray(st?.steps)) {
-          yPos = await addStepsToPdf(pdf, st.steps, margin, yPos, pageWidth, pageHeight, ensureSpace, testStart, 0);
+      for (const fixture of testData.setup) {
+        if (Array.isArray(fixture?.steps)) {
+          yPos = await addStepsToPdf(pdf, fixture.steps, margin, yPos, pageWidth, pageHeight, ensureSpace, testStart, 0);
         }
       }
     }
 
-    if (hasTestStage) {
+    if (hasSteps) {
       yPos = addStageTitle(pdf, "Test body", margin, yPos, ensureSpace);
-      yPos = await addStepsToPdf(pdf, testData.testStage.steps, margin, yPos, pageWidth, pageHeight, ensureSpace, testStart, 0);
+      yPos = await addStepsToPdf(pdf, testData.steps, margin, yPos, pageWidth, pageHeight, ensureSpace, testStart, 0);
     }
 
-    if (hasAfterStages) {
+    if (hasTeardown) {
       yPos = addStageTitle(pdf, "Tear down", margin, yPos, ensureSpace);
-      for (const st of testData.afterStages) {
-        if (Array.isArray(st?.steps)) {
-          yPos = await addStepsToPdf(pdf, st.steps, margin, yPos, pageWidth, pageHeight, ensureSpace, testStart, 0);
+      for (const fixture of testData.teardown) {
+        if (Array.isArray(fixture?.steps)) {
+          yPos = await addStepsToPdf(pdf, fixture.steps, margin, yPos, pageWidth, pageHeight, ensureSpace, testStart, 0);
         }
       }
     }
   }
+}
+
+function normalizeAttachment(att: any): { name: string; source: string; type: string } | null {
+  if (!att) {
+    return null;
+  }
+
+  if (att.link && typeof att.link === "object") {
+    const link = att.link;
+    const id = link.id || "";
+    const ext = link.ext || "";
+    const source = id ? `${id}${ext}` : (link.originalFileName || "");
+    const name = link.name || link.originalFileName || source || "attachment";
+    const type = link.contentType || "application/octet-stream";
+    
+    if (!source) {
+      return null;
+    }
+    
+    return { name, source, type };
+  }
+
+  if (att.source || att.name) {
+    return {
+      name: att.name || att.source || "attachment",
+      source: att.source || att.name || "",
+      type: att.type || att.contentType || "application/octet-stream",
+    };
+  }
+
+  return null;
+}
+
+function collectAllAttachments(testData: AwesomeTestResult): Array<{ name: string; source: string; type: string }> {
+  const attachments: Array<{ name: string; source: string; type: string }> = [];
+
+  if (Array.isArray(testData.attachments) && testData.attachments.length > 0) {
+    for (const att of testData.attachments) {
+      const normalized = normalizeAttachment(att);
+      if (normalized) {
+        attachments.push(normalized);
+      }
+    }
+  }
+
+  const collectFromSteps = (steps: any[]): void => {
+    if (!Array.isArray(steps)) {
+      return;
+    }
+    for (const step of steps) {
+      if (step?.attachments && Array.isArray(step.attachments)) {
+        for (const att of step.attachments) {
+          const normalized = normalizeAttachment(att);
+          if (normalized) {
+            attachments.push(normalized);
+          }
+        }
+      }
+      if (step?.steps && Array.isArray(step.steps)) {
+        for (const subItem of step.steps) {
+          if (subItem?.type === "attachment") {
+            const normalized = normalizeAttachment(subItem);
+            if (normalized) {
+              attachments.push(normalized);
+            }
+          }
+        }
+        collectFromSteps(step.steps);
+      }
+    }
+  };
+
+  const collectFromFixtures = (fixtures: any[]): void => {
+    for (const fixture of fixtures) {
+      if (fixture?.attachments && Array.isArray(fixture.attachments)) {
+        for (const att of fixture.attachments) {
+          const normalized = normalizeAttachment(att);
+          if (normalized) {
+            attachments.push(normalized);
+          }
+        }
+      }
+      if (fixture?.steps) {
+        collectFromSteps(fixture.steps);
+      }
+    }
+  };
+
+  if (Array.isArray(testData.setup)) {
+    collectFromFixtures(testData.setup);
+  }
+
+  if (Array.isArray(testData.steps)) {
+    collectFromSteps(testData.steps);
+  }
+
+  if (Array.isArray(testData.teardown)) {
+    collectFromFixtures(testData.teardown);
+  }
+
+  return attachments;
+}
+
+async function findRanorexFullReport(testData: AwesomeTestResult): Promise<{ name: string; source: string; type: string } | null> {
+  const attachments = collectAllAttachments(testData);
+  const ranorexFullReportMatcher = /ranorexfullreport\.(zip|pdf)/i;
+  const ranorexAttachment = attachments.find((att) => {
+    if (!att || !att.source) {
+      return false;
+    }
+    const attName = String(att.name || att.source || "").trim().toLowerCase();
+    return ranorexFullReportMatcher.test(attName);
+  });
+
+  if (ranorexAttachment) {
+    return {
+      name: ranorexAttachment.name || ranorexAttachment.source || "RanorexFullReport.zip",
+      source: ranorexAttachment.source || "",
+      type: ranorexAttachment.type || "application/zip",
+    };
+  }
+
+  return null;
+}
+
+function createAttachmentLink(pdf: any, text: string, url: string, x: number, yPos: number): void {
+  pdf.setTextColor(0, 0, 128);
+  setupUnicodeFont(pdf);
+  pdf.setFontSize(9);
+
+  if (typeof pdf.textWithLink === "function") {
+    pdf.textWithLink(text, x, yPos, { url });
+  } else if (typeof pdf.link === "function") {
+    pdf.text(text, x, yPos);
+    const textWidth = pdf.getTextWidth(text);
+    const linkHeight = 8;
+    const linkYTop = yPos - 5;
+    try {
+      pdf.link(x, linkYTop, textWidth, linkHeight, { url });
+    } catch (e) {
+      console.warn("Failed to create link:", e instanceof Error ? e.message : String(e));
+    }
+  } else {
+    pdf.text(text, x, yPos);
+  }
+  pdf.setTextColor(0, 0, 0);
 }
 
 async function addTestAttachments(
@@ -543,65 +698,14 @@ async function addTestAttachments(
   pageWidth: number,
   ensureSpace: (needed: number) => boolean,
 ): Promise<number> {
-  const attachments: Array<{ name?: string; source?: string; type?: string }> = [];
-
-  if (Array.isArray(testData.attachments) && testData.attachments.length > 0) {
-    attachments.push(...testData.attachments);
-  }
-
-  const collectFromSteps = (steps: any[]): void => {
-    if (!Array.isArray(steps)) {
-      return;
-    }
-    for (const step of steps) {
-      if (step?.attachments && Array.isArray(step.attachments)) {
-        attachments.push(...step.attachments);
-      }
-      if (step?.steps && Array.isArray(step.steps)) {
-        collectFromSteps(step.steps);
-      }
-    }
-  };
-
-  if (Array.isArray(testData.beforeStages)) {
-    for (const stage of testData.beforeStages) {
-      if (stage?.attachments && Array.isArray(stage.attachments)) {
-        attachments.push(...stage.attachments);
-      }
-      if (stage?.steps) {
-        collectFromSteps(stage.steps);
-      }
-    }
-  }
-
-  if (testData.testStage) {
-    if (testData.testStage.attachments && Array.isArray(testData.testStage.attachments)) {
-      attachments.push(...testData.testStage.attachments);
-    }
-    if (testData.testStage.steps) {
-      collectFromSteps(testData.testStage.steps);
-    }
-  }
-
-  if (Array.isArray(testData.afterStages)) {
-    for (const stage of testData.afterStages) {
-      if (stage?.attachments && Array.isArray(stage.attachments)) {
-        attachments.push(...stage.attachments);
-      }
-      if (stage?.steps) {
-        collectFromSteps(stage.steps);
-      }
-    }
-  }
-
+  const attachments = collectAllAttachments(testData);
   const ranorexFullReportMatcher = /ranorexfullreport\.zip/i;
   const filteredAttachments = attachments.filter((att) => {
     if (!att || !att.source) {
       return false;
     }
     const attName = String(att.name || att.source || "").trim().toLowerCase();
-    const isRanorexFullReport = ranorexFullReportMatcher.test(attName);
-    return isRanorexFullReport;
+    return ranorexFullReportMatcher.test(attName);
   });
 
   if (filteredAttachments.length === 0) {
@@ -628,32 +732,39 @@ async function addTestAttachments(
     const attUrl = await reportDataUrl(`data/attachments/${att.source}`, att.type || "application/zip");
 
     ensureSpace(6);
-    pdf.setTextColor(0, 0, 128);
-
-    const x = margin + 5;
-    setupUnicodeFont(pdf);
-    pdf.setFontSize(9);
-
-    if (typeof pdf.textWithLink === "function") {
-      pdf.textWithLink(attName, x, yPos, { url: attUrl });
-    } else {
-      pdf.text(attName, x, yPos);
-      const textWidth = pdf.getTextWidth(attName);
-      const linkHeight = 8;
-      const linkYTop = yPos - 5;
-      if (typeof pdf.link === "function") {
-        try {
-          pdf.link(x, linkYTop, textWidth, linkHeight, { url: attUrl });
-        } catch (e) {
-          console.warn("Failed to create attachment link:", e instanceof Error ? e.message : String(e));
-        }
-      } else {
-        console.warn("pdf.link is not available for attachment link");
-      }
-    }
-
-    pdf.setTextColor(0, 0, 0);
+    createAttachmentLink(pdf, attName, attUrl, margin + 5, yPos);
     yPos += 6;
+  }
+
+  return yPos;
+}
+
+async function processImageAttachment(
+  pdf: any,
+  att: any,
+  margin: number,
+  yPos: number,
+  pageWidth: number,
+  pageHeight: number,
+  setupUnicodeFont: (pdf: any) => void,
+): Promise<number> {
+  const normalizedAtt = normalizeAttachment(att);
+  if (!normalizedAtt) {
+    return yPos;
+  }
+
+  const isImage = isImageAttachment(normalizedAtt);
+  if (!isImage) {
+    return yPos;
+  }
+
+  try {
+    const imageUrl = await reportDataUrl(`data/attachments/${normalizedAtt.source}`, normalizedAtt.type);
+    if (imageUrl) {
+      return await addImageToPdf(pdf, imageUrl, normalizedAtt, margin, yPos, pageWidth, pageHeight, setupUnicodeFont);
+    }
+  } catch (e) {
+    console.error("Error loading image attachment:", normalizedAtt?.source, normalizedAtt?.type, e);
   }
 
   return yPos;
@@ -679,12 +790,22 @@ async function addStepsToPdf(
 
     const stepNameRaw = String(step?.name || "Step");
     const stepNameLower = stepNameRaw.trim().toLowerCase();
+    const status = step?.status || "unknown";
 
     if (stepNameLower === "step table") {
       return;
     }
 
     if (step?.attachmentStep || /ranorexfullreport\.zip/i.test(stepNameLower)) {
+      return;
+    }
+
+    if ((stepNameLower === "step" || stepNameLower === "n/a" || !step?.name || stepNameRaw.trim() === "") && status === "unknown") {
+      if (Array.isArray(step?.steps) && step.steps.length > 0) {
+        for (const sub of step.steps) {
+          await addStep(sub, level + 1);
+        }
+      }
       return;
     }
 
@@ -704,23 +825,17 @@ async function addStepsToPdf(
           if (attName === "step table") {
             continue;
           }
-
-          if (isImageAttachment(att)) {
-            try {
-              const imageUrl = await reportDataUrl(`data/attachments/${att.source}`, att.type);
-              if (imageUrl) {
-                yPos = await addImageToPdf(pdf, imageUrl, att, margin, yPos, pageWidth, pageHeight, setupUnicodeFont);
-              }
-            } catch (e) {
-              console.error("Error loading image attachment:", att?.source, e);
-            }
-          }
+          yPos = await processImageAttachment(pdf, att, margin, yPos, pageWidth, pageHeight, setupUnicodeFont);
         }
       }
 
       if (Array.isArray(step?.steps) && step.steps.length > 0) {
-        for (const sub of step.steps) {
-          await addStep(sub, level + 1);
+        for (const subItem of step.steps) {
+          if (subItem?.type === "attachment") {
+            yPos = await processImageAttachment(pdf, subItem, margin, yPos, pageWidth, pageHeight, setupUnicodeFont);
+          } else {
+            await addStep(subItem, level + 1);
+          }
         }
       }
       return;
@@ -736,7 +851,6 @@ async function addStepsToPdf(
     const levelIndent = Math.min(16, level * 3);
     const dotX = cols.nameX - 3 + levelIndent;
 
-    const status = step?.status || "unknown";
     const statusColor = getStatusColor(status);
 
     const durationMs = getDurationMs(step?.time, step?.duration);
@@ -789,16 +903,14 @@ async function addStepsToPdf(
         if (attName === "step table") {
           continue;
         }
+        yPos = await processImageAttachment(pdf, att, cols.nameX + levelIndent, yPos, pageWidth, pageHeight, setupUnicodeFont);
+      }
+    }
 
-        if (isImageAttachment(att)) {
-          try {
-            const imageUrl = await reportDataUrl(`data/attachments/${att.source}`, att.type);
-            if (imageUrl) {
-              yPos = await addImageToPdf(pdf, imageUrl, att, cols.nameX + levelIndent, yPos, pageWidth, pageHeight, setupUnicodeFont);
-            }
-          } catch (e) {
-            console.error("Error loading image attachment:", att?.source, e);
-          }
+    if (Array.isArray(step?.steps) && step.steps.length > 0) {
+      for (const subItem of step.steps) {
+        if (subItem?.type === "attachment") {
+          yPos = await processImageAttachment(pdf, subItem, cols.nameX + levelIndent, yPos, pageWidth, pageHeight, setupUnicodeFont);
         }
       }
     }
