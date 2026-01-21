@@ -16,25 +16,47 @@ type Route = {
   };
 };
 
-export const parseHash = (): Route => {
+export const parseHash = (): Route & { searchQuery?: string } => {
   const hash = globalThis.location.hash.replace(/^#/, "").trim();
-  const parts = hash.split("/").filter(Boolean);
+  
+  // Extract query parameters from hash (e.g., #suites?searchQuery=test-id)
+  const [pathPart, queryPart] = hash.split("?");
+  const queryParams: Record<string, string> = {};
+  
+  if (queryPart) {
+    const pairs = queryPart.split("&");
+    for (const pair of pairs) {
+      const [key, value] = pair.split("=");
+      if (key && value) {
+        queryParams[decodeURIComponent(key)] = decodeURIComponent(value);
+      }
+    }
+  }
+  
+  const parts = pathPart.split("/").filter(Boolean);
   const [first, second] = parts;
 
+  const result: Route & { searchQuery?: string } = {};
+
+  if (queryParams.searchQuery) {
+    result.searchQuery = queryParams.searchQuery;
+  }
+
   if (parts.length === 0) {
-    return {};
+    return result;
   }
 
   if (parts.length === 1) {
     if (/^[a-f0-9]{32,}$/.test(first)) {
-      return { params: { testResultId: first } };
+      return { ...result, params: { testResultId: first } };
     }
-    return { category: first || "", params: { testResultId: second } };
+    return { ...result, category: first || "", params: { testResultId: second } };
   }
 
   if (parts.length === 2) {
     if (/^[a-f0-9]{32,}$/.test(first)) {
       return {
+        ...result,
         params: {
           testResultId: first,
           subTab: second,
@@ -43,6 +65,7 @@ export const parseHash = (): Route => {
     }
 
     return {
+      ...result,
       category: first,
       params: {
         testResultId: second,
@@ -52,10 +75,10 @@ export const parseHash = (): Route => {
 
   if (parts.length === 3) {
     const [category, testResultId, subTab] = parts;
-    return { category, params: { testResultId, subTab } };
+    return { ...result, category, params: { testResultId, subTab } };
   }
 
-  return {};
+  return result;
 };
 
 export const route = signal<Route>(parseHash());

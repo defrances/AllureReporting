@@ -1,6 +1,7 @@
 import { SearchBox } from "@allurereport/web-components";
 import { useI18n } from "@/stores/locale";
 import { setTreeQuery, treeQuery } from "@/stores/treeFilters";
+import { ReportPdfButton } from "@/components/ReportPdfButton";
 import { Filters } from "./Filters";
 import * as styles from "./styles.scss";
 
@@ -16,6 +17,7 @@ export const HeaderActions = () => {
     <div className={styles.headerActions}>
       <Search />
       <Filters />
+      <ReportPdfButton />
     </div>
   );
 };

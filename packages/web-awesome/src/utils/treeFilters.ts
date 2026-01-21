@@ -13,6 +13,7 @@ import {
 } from "@allurereport/core-api";
 import type { TreeFiltersState, TreeSortBy } from "@/stores/treeFilters";
 import type { AwesomeRecursiveTree, AwesomeTree, AwesomeTreeGroup, AwesomeTreeLeaf } from "../../types";
+import { testResultStore } from "@/stores/testResults";
 
 const matchesName = (name: string, query: string) => {
   return name.toLocaleLowerCase().includes(query.toLocaleLowerCase());
@@ -22,11 +23,48 @@ const matchesNodeId = (nodeId: string, query: string) => {
   return nodeId.toLowerCase() === query.toLocaleLowerCase();
 };
 
+const matchesTestId = (nodeId: string, query: string): boolean => {
+  const testData = testResultStore.value.data?.[nodeId];
+  if (!testData) {
+    return false;
+  }
+
+  // Check test_id parameter
+  if (Array.isArray(testData.parameters)) {
+    const testIdParam = testData.parameters.find((p: any) => p?.name === "test_id");
+    if (testIdParam?.value) {
+      const testIdValue = String(testIdParam.value).toLowerCase();
+      if (testIdValue === query.toLowerCase() || testIdValue.includes(query.toLowerCase())) {
+        return true;
+      }
+    }
+  }
+
+  // Check uid
+  if (testData.uid) {
+    const uidValue = String(testData.uid).toLowerCase();
+    if (uidValue === query.toLowerCase() || uidValue.includes(query.toLowerCase())) {
+      return true;
+    }
+  }
+
+  // Check testCase.id if available
+  if ((testData as any).testCase?.id) {
+    const testCaseId = String((testData as any).testCase.id).toLowerCase();
+    if (testCaseId === query.toLowerCase() || testCaseId.includes(query.toLowerCase())) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 export const isIncluded = (leaf: TreeLeaf<AwesomeTreeLeaf>, filterOptions: TreeFiltersState) => {
   const queryMatched =
     !filterOptions?.query ||
     matchesName(leaf.name, filterOptions.query) ||
-    matchesNodeId(leaf.nodeId, filterOptions.query);
+    matchesNodeId(leaf.nodeId, filterOptions.query) ||
+    matchesTestId(leaf.nodeId, filterOptions.query);
 
   const statusMatched =
     !filterOptions?.status || filterOptions?.status === "total" || leaf.status === filterOptions.status;

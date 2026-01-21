@@ -10,6 +10,7 @@ import { TrPrevStatuses } from "@/components/TestResult/TrPrevStatuses";
 import { TrSeverity } from "@/components/TestResult/TrSeverity";
 import { TrStatus } from "@/components/TestResult/TrStatus";
 import { TrTab, TrTabsList } from "@/components/TestResult/TrTabs";
+import { TrPdfButton } from "@/components/TestResult/TrPdfButton";
 import { testEnvGroupsStore } from "@/stores/env";
 import { isSplitMode } from "@/stores/layout";
 import { useI18n } from "@/stores/locale";
@@ -46,6 +47,7 @@ export const TrInfo: FunctionalComponent<TrInfoProps> = ({ testResult }) => {
               {formattedDuration}
             </Text>
           </TooltipWrapper>
+          <TrPdfButton testResult={testResult} />
         </div>
         <div className={styles["test-result-tabs"]}>
           <TrTabsList>

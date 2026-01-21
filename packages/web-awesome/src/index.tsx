@@ -18,8 +18,12 @@ import { fetchGlobals } from "@/stores/globals";
 import { getLayout, isLayoutLoading, layoutStore } from "@/stores/layout";
 import { handleHashChange, route } from "@/stores/router";
 import { currentSection, getSection } from "@/stores/sections";
-import { fetchTestResult, fetchTestResultNav } from "@/stores/testResults";
-import { fetchEnvTreesData } from "@/stores/tree";
+import { fetchTestResult, fetchTestResultNav, testResultStore } from "@/stores/testResults";
+import { fetchEnvTreesData, treeStore } from "@/stores/tree";
+import { setTreeQuery } from "@/stores/treeFilters/actions";
+import { treeQuery } from "@/stores/treeFilters";
+import { fetchReportJsonData } from "@allurereport/web-commons";
+import type { AwesomeTestResult } from "types";
 import { isMac } from "@/utils/isMac";
 import { fetchQualityGateResults } from "./stores/qualityGate";
 import * as styles from "./styles.scss";
@@ -82,10 +86,121 @@ const App = () => {
     }
   }, [testResultId, currentEnvironment]);
 
+  // Preload test data for search by test id
   useEffect(() => {
-    const onHashChange = () => handleHashChange();
+    const query = treeQuery.value;
+    if (!query || query.length < 8) {
+      return;
+    }
+
+    // Check if query looks like a test id (UUID format or similar)
+    const isTestIdFormat = /^[a-f0-9-]{8,}$/i.test(query);
+    if (!isTestIdFormat) {
+      return;
+    }
+
+    // Try to find and load test data by test id
+    const loadTestDataByTestId = async () => {
+      const treeData = treeStore.value.data;
+      if (!treeData) {
+        return;
+      }
+
+      // Collect all test nodeIds
+      const allNodeIds: string[] = [];
+      for (const env in treeData) {
+        const tree = treeData[env];
+        if (tree && tree.leavesById) {
+          for (const nodeId in tree.leavesById) {
+            if (nodeId && !testResultStore.value.data?.[nodeId]) {
+              allNodeIds.push(nodeId);
+            }
+          }
+        }
+      }
+
+      // Try to load test data for first 50 tests (to avoid too many requests)
+      const nodeIdsToCheck = allNodeIds.slice(0, 50);
+      for (const nodeId of nodeIdsToCheck) {
+        try {
+          const testData = await fetchReportJsonData<AwesomeTestResult>(`data/test-results/${nodeId}.json`, {
+            bustCache: true,
+          });
+
+          // Check if this test matches the search query
+          let matches = false;
+
+          // Check test_id parameter
+          if (Array.isArray(testData.parameters)) {
+            const testIdParam = testData.parameters.find((p: any) => p?.name === "test_id");
+            if (testIdParam?.value) {
+              const testIdValue = String(testIdParam.value).toLowerCase();
+              if (testIdValue === query.toLowerCase() || testIdValue.includes(query.toLowerCase())) {
+                matches = true;
+              }
+            }
+          }
+
+          // Check uid
+          if (!matches && testData.uid) {
+            const uidValue = String(testData.uid).toLowerCase();
+            if (uidValue === query.toLowerCase() || uidValue.includes(query.toLowerCase())) {
+              matches = true;
+            }
+          }
+
+          // Check testCase.id if available
+          if (!matches && (testData as any).testCase?.id) {
+            const testCaseId = String((testData as any).testCase.id).toLowerCase();
+            if (testCaseId === query.toLowerCase() || testCaseId.includes(query.toLowerCase())) {
+              matches = true;
+            }
+          }
+
+          // If matches, add to cache
+          if (matches) {
+            testResultStore.value = {
+              data: { ...testResultStore.value.data, [nodeId]: testData },
+              error: undefined,
+              loading: false,
+            };
+            // Found matching test, can stop searching
+            break;
+          }
+        } catch (error) {
+          // Ignore errors for individual test loads
+          continue;
+        }
+      }
+    };
+
+    // Debounce the search
+    const timeoutId = setTimeout(() => {
+      loadTestDataByTestId();
+    }, 500);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [treeQuery.value]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      handleHashChange();
+      // Handle searchQuery from URL
+      const parsed = route.value as any;
+      if (parsed.searchQuery) {
+        setTreeQuery(parsed.searchQuery);
+      }
+    };
 
     handleHashChange();
+    // Handle initial searchQuery from URL
+    const parsed = route.value as any;
+    if (parsed.searchQuery) {
+      setTreeQuery(parsed.searchQuery);
+    }
+    
     globalThis.addEventListener("hashchange", onHashChange);
 
     return () => {

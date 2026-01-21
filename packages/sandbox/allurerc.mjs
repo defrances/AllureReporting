@@ -53,6 +53,12 @@ export default defineConfig({
     ],
   },
   plugins: {
+    awesome: {
+      options: {
+        singleFile: false,
+        reportLanguage: "en",
+      },
+    },
     allure2: {
       options: {
         singleFile: false,
