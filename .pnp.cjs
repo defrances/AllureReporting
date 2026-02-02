@@ -1043,7 +1043,7 @@ const RAW_RUNTIME_STATE =
           ["html2canvas", "npm:1.4.1"],\
           ["i18next", "npm:8.4.3"],\
           ["jquery", "npm:3.7.1"],\
-          ["jspdf", "npm:4.0.0"],\
+          ["jspdf", "npm:4.1.0"],\
           ["mini-css-extract-plugin", "virtual:243a8d39f95fc50fe4c63a5921e915177d49fbc3bfea3cb45d47af64df3799b17fd8965f283c5c103c6cd4d907d37c53e23a2924d615143ff739dc016c48e6d8#npm:2.9.1"],\
           ["normalize-css", "npm:2.3.1"],\
           ["npm-run-all2", "npm:7.0.1"],\
@@ -1131,7 +1131,7 @@ const RAW_RUNTIME_STATE =
           ["html-webpack-plugin", "virtual:c66117924d74d8c8383240e41a734c2dff366c7d2dad6ebb4c4773d406855c169bc14100c6748dbcf0914889503173bd2df7fadd09b71fe9c0a978616d948a39#npm:5.6.3"],\
           ["i18next", "virtual:c66117924d74d8c8383240e41a734c2dff366c7d2dad6ebb4c4773d406855c169bc14100c6748dbcf0914889503173bd2df7fadd09b71fe9c0a978616d948a39#npm:24.0.5"],\
           ["jsdom", "virtual:c66117924d74d8c8383240e41a734c2dff366c7d2dad6ebb4c4773d406855c169bc14100c6748dbcf0914889503173bd2df7fadd09b71fe9c0a978616d948a39#npm:26.1.0"],\
-          ["jspdf", "npm:4.0.0"],\
+          ["jspdf", "npm:4.1.0"],\
           ["md5", "npm:2.3.0"],\
           ["mini-css-extract-plugin", "virtual:c66117924d74d8c8383240e41a734c2dff366c7d2dad6ebb4c4773d406855c169bc14100c6748dbcf0914889503173bd2df7fadd09b71fe9c0a978616d948a39#npm:2.9.1"],\
           ["npm-run-all2", "npm:7.0.1"],\
@@ -23019,10 +23019,10 @@ const RAW_RUNTIME_STATE =
       }]\
     ]],\
     ["jspdf", [\
-      ["npm:4.0.0", {\
-        "packageLocation": "./.yarn/cache/jspdf-npm-4.0.0-65f5330783-c62d3ff32b.zip/node_modules/jspdf/",\
+      ["npm:4.1.0", {\
+        "packageLocation": "./.yarn/cache/jspdf-npm-4.1.0-c3699094d6-07ca8deec9.zip/node_modules/jspdf/",\
         "packageDependencies": [\
-          ["jspdf", "npm:4.0.0"],\
+          ["jspdf", "npm:4.1.0"],\
           ["@babel/runtime", "npm:7.28.4"],\
           ["canvg", "npm:3.0.11"],\
           ["core-js", "npm:3.47.0"],\
