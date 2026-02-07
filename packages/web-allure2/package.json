@@ -101,7 +101,7 @@
     "style-loader": "^3.3.4",
     "svg-sprite-loader": "^6.0.11",
     "underscore.string": "^3.3.6",
-    "webpack": "^5.99.9",
+    "webpack": "^5.104.1",
     "webpack-cli": "^5.1.4",
     "webpack-manifest-plugin": "^5.0.0",
     "webpack-merge": "^6.0.1"
