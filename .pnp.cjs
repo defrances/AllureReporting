@@ -325,7 +325,7 @@ const RAW_RUNTIME_STATE =
           ["eslint-plugin-no-null", "virtual:e545774f2ccef2393aca5c009a358532c03f065393263f9cbb3ab67366c2879624d5c1730fe5313387f3f2857386a5904c6581787f320ce570367a0ce47cf7b2#npm:1.0.2"],\
           ["eslint-plugin-prefer-arrow", "virtual:e545774f2ccef2393aca5c009a358532c03f065393263f9cbb3ab67366c2879624d5c1730fe5313387f3f2857386a5904c6581787f320ce570367a0ce47cf7b2#npm:1.2.3"],\
           ["handlebars", "npm:4.7.8"],\
-          ["markdown-it", "npm:14.1.0"],\
+          ["markdown-it", "npm:14.1.1"],\
           ["node-stream-zip", "npm:1.15.0"],\
           ["p-limit", "npm:7.2.0"],\
           ["progress", "npm:2.0.3"],\
@@ -23509,10 +23509,10 @@ const RAW_RUNTIME_STATE =
       }]\
     ]],\
     ["markdown-it", [\
-      ["npm:14.1.0", {\
-        "packageLocation": "./.yarn/cache/markdown-it-npm-14.1.0-e337d75bfe-f34f921be1.zip/node_modules/markdown-it/",\
+      ["npm:14.1.1", {\
+        "packageLocation": "./.yarn/cache/markdown-it-npm-14.1.1-45c173274d-088822c8aa.zip/node_modules/markdown-it/",\
         "packageDependencies": [\
-          ["markdown-it", "npm:14.1.0"],\
+          ["markdown-it", "npm:14.1.1"],\
           ["argparse", "npm:2.0.1"],\
           ["entities", "npm:4.5.0"],\
           ["linkify-it", "npm:5.0.0"],\
