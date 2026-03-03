@@ -852,7 +852,7 @@ const RAW_RUNTIME_STATE =
           ["eslint-plugin-n", "virtual:e545774f2ccef2393aca5c009a358532c03f065393263f9cbb3ab67366c2879624d5c1730fe5313387f3f2857386a5904c6581787f320ce570367a0ce47cf7b2#npm:17.14.0"],\
           ["eslint-plugin-no-null", "virtual:e545774f2ccef2393aca5c009a358532c03f065393263f9cbb3ab67366c2879624d5c1730fe5313387f3f2857386a5904c6581787f320ce570367a0ce47cf7b2#npm:1.0.2"],\
           ["eslint-plugin-prefer-arrow", "virtual:e545774f2ccef2393aca5c009a358532c03f065393263f9cbb3ab67366c2879624d5c1730fe5313387f3f2857386a5904c6581787f320ce570367a0ce47cf7b2#npm:1.2.3"],\
-          ["fast-xml-parser", "npm:4.5.0"],\
+          ["fast-xml-parser", "npm:4.5.4"],\
           ["rimraf", "npm:6.0.1"],\
           ["typescript", "patch:typescript@npm%3A5.6.3#optional!builtin<compat/typescript>::version=5.6.3&hash=8c6c40"],\
           ["vitest", "virtual:e545774f2ccef2393aca5c009a358532c03f065393263f9cbb3ab67366c2879624d5c1730fe5313387f3f2857386a5904c6581787f320ce570367a0ce47cf7b2#npm:2.1.9"]\
@@ -20355,10 +20355,10 @@ const RAW_RUNTIME_STATE =
       }]\
     ]],\
     ["fast-xml-parser", [\
-      ["npm:4.5.0", {\
-        "packageLocation": "./.yarn/cache/fast-xml-parser-npm-4.5.0-353a57f69a-dc9571c10e.zip/node_modules/fast-xml-parser/",\
+      ["npm:4.5.4", {\
+        "packageLocation": "./.yarn/cache/fast-xml-parser-npm-4.5.4-210e7ae773-991f11a15d.zip/node_modules/fast-xml-parser/",\
         "packageDependencies": [\
-          ["fast-xml-parser", "npm:4.5.0"],\
+          ["fast-xml-parser", "npm:4.5.4"],\
           ["strnum", "npm:1.0.5"]\
         ],\
         "linkType": "HARD"\
