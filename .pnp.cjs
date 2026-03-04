@@ -1260,7 +1260,7 @@ const RAW_RUNTIME_STATE =
           ["d3-interpolate", "npm:3.0.1"],\
           ["d3-scale", "npm:4.0.2"],\
           ["d3-shape", "npm:3.2.0"],\
-          ["dompurify", "npm:3.2.6"],\
+          ["dompurify", "npm:3.3.1"],\
           ["eslint", "npm:8.57.1"],\
           ["eslint-config-prettier", "virtual:e545774f2ccef2393aca5c009a358532c03f065393263f9cbb3ab67366c2879624d5c1730fe5313387f3f2857386a5904c6581787f320ce570367a0ce47cf7b2#npm:9.1.0"],\
           ["eslint-plugin-import", "virtual:e545774f2ccef2393aca5c009a358532c03f065393263f9cbb3ab67366c2879624d5c1730fe5313387f3f2857386a5904c6581787f320ce570367a0ce47cf7b2#npm:2.31.0"],\
@@ -18616,14 +18616,6 @@ const RAW_RUNTIME_STATE =
       }]\
     ]],\
     ["dompurify", [\
-      ["npm:3.2.6", {\
-        "packageLocation": "./.yarn/cache/dompurify-npm-3.2.6-8d2a7542b7-b91631ed0e.zip/node_modules/dompurify/",\
-        "packageDependencies": [\
-          ["dompurify", "npm:3.2.6"],\
-          ["@types/trusted-types", "npm:2.0.7"]\
-        ],\
-        "linkType": "HARD"\
-      }],\
       ["npm:3.3.1", {\
         "packageLocation": "./.yarn/cache/dompurify-npm-3.3.1-5bbe58c5ff-f71cca489e.zip/node_modules/dompurify/",\
         "packageDependencies": [\
