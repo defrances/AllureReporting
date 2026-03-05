@@ -26461,7 +26461,7 @@ const RAW_RUNTIME_STATE =
           ["@types/postcss", null],\
           ["postcss", "npm:8.5.6"],\
           ["postcss-value-parser", "npm:4.2.0"],\
-          ["svgo", "npm:2.8.0"]\
+          ["svgo", "npm:2.8.2"]\
         ],\
         "packagePeers": [\
           "@types/postcss",\
@@ -27884,6 +27884,15 @@ const RAW_RUNTIME_STATE =
         "linkType": "HARD"\
       }]\
     ]],\
+    ["sax", [\
+      ["npm:1.5.0", {\
+        "packageLocation": "./.yarn/cache/sax-npm-1.5.0-d40bca2226-9012ff37dd.zip/node_modules/sax/",\
+        "packageDependencies": [\
+          ["sax", "npm:1.5.0"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
     ["saxes", [\
       ["npm:6.0.0", {\
         "packageLocation": "./.yarn/cache/saxes-npm-6.0.0-31558949f5-97b50daf6c.zip/node_modules/saxes/",\
@@ -29110,16 +29119,16 @@ const RAW_RUNTIME_STATE =
       }]\
     ]],\
     ["svgo", [\
-      ["npm:2.8.0", {\
-        "packageLocation": "./.yarn/cache/svgo-npm-2.8.0-43b4f3debe-2b74544da1.zip/node_modules/svgo/",\
+      ["npm:2.8.2", {\
+        "packageLocation": "./.yarn/cache/svgo-npm-2.8.2-ae6ef227db-a0922a2cbb.zip/node_modules/svgo/",\
         "packageDependencies": [\
-          ["svgo", "npm:2.8.0"],\
-          ["@trysound/sax", "npm:0.2.0"],\
+          ["svgo", "npm:2.8.2"],\
           ["commander", "npm:7.2.0"],\
           ["css-select", "npm:4.3.0"],\
           ["css-tree", "npm:1.1.3"],\
           ["csso", "npm:4.2.0"],\
           ["picocolors", "npm:1.0.0"],\
+          ["sax", "npm:1.5.0"],\
           ["stable", "npm:0.1.8"]\
         ],\
         "linkType": "HARD"\
